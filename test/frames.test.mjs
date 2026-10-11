@@ -18,24 +18,7 @@ const STATES = [
   "confused",
   "error",
 ]
-const PIXEL_KEYS = new Set([
-  ".",
-  "K",
-  "P",
-  "p",
-  "h",
-  "W",
-  "B",
-  "Y",
-  "y",
-  "G",
-  "g",
-  "R",
-  "N",
-  "n",
-  "S",
-  "c",
-])
+const HEX_RE = /^#[0-9a-f]{6}$/
 
 function blockFor(state) {
   const key = framesSrc.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
@@ -51,21 +34,34 @@ function blockFor(state) {
   return framesSrc.slice(start, Math.min(...nextStarts, framesSrc.length))
 }
 
+const TOKEN_RE = /"(#[0-9a-fA-F]{6})"|null/g
+
+function cellsFor(state) {
+  const tokens = [...blockFor(state).matchAll(TOKEN_RE)].map((m) =>
+    m[1] ? m[1].toLowerCase() : null,
+  )
+  return tokens
+}
+
 describe("frames", () => {
-  it("defines all 9 states with 2 frames of 24 rows (20px wide)", () => {
+  it("defines all 9 states with 2 frames of 20 rows (16px wide)", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{20})"/g)].map((m) => m[1])
-      assert.equal(rows.length, 48, `${state}: expected 48 pixel rows, got ${rows.length}`)
+      const tokens = cellsFor(state)
+      assert.equal(tokens.length, 2 * 20 * 16, `${state}: expected 640 cells, got ${tokens.length}`)
     }
   })
 
-  it("keeps every row rectangular (20px) with known palette keys", () => {
+  it("keeps every row rectangular (16px) with hex colors or transparency", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{20})"/g)].map((m) => m[1])
-      for (const row of rows) {
-        assert.equal(row.length, 20, `${state}: bad width: ${JSON.stringify(row)}`)
-        for (const ch of row) {
-          assert.ok(PIXEL_KEYS.has(ch), `${state}: unknown pixel ${JSON.stringify(ch)}`)
+      const tokens = cellsFor(state)
+      for (let r = 0; r < tokens.length; r += 16) {
+        const row = tokens.slice(r, r + 16)
+        assert.equal(row.length, 16, `${state}: bad width at row ${r / 16}`)
+        for (const cell of row) {
+          assert.ok(
+            cell === null || HEX_RE.test(cell),
+            `${state}: bad cell ${JSON.stringify(cell)}`,
+          )
         }
       }
     }

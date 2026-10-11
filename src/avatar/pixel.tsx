@@ -1,10 +1,11 @@
 import { For } from "solid-js"
-import { FRAMES, PALETTE } from "./frames.js"
+import { FRAMES, type PixelCell, type PixelRow } from "./frames.js"
 import type { AgentStatus } from "./status.js"
 
-// 16x16 pixel maps render as 16 cols x 8 rows: each terminal cell shows two
-// vertical pixels via half-blocks ("▀" = top pixel, "▄" = bottom pixel),
-// which doubles detail while shrinking the sprite footprint.
+// 20px-wide truecolor maps render as 20 cols x 12 rows: each terminal cell
+// shows two vertical pixels via half-blocks ("▀" = top pixel, "▄" = bottom
+// pixel). Cells carry exact source RGB, so gradients survive; runs of
+// identical cells still merge into one span.
 export interface CellRun {
   readonly fg: string | null
   readonly bg: string | null
@@ -17,17 +18,10 @@ interface Cell {
   readonly ch: string
 }
 
-function paletteOf(ch: string): string | null {
-  if (ch === ".") return null
-  return PALETTE[ch] ?? null
-}
-
-function cellFor(top: string, bottom: string): Cell {
-  const t = paletteOf(top)
-  const b = paletteOf(bottom)
-  if (t && b) return { fg: t, bg: b, ch: "▀" }
-  if (t) return { fg: t, bg: null, ch: "▀" }
-  if (b) return { fg: b, bg: null, ch: "▄" }
+function cellFor(top: PixelCell, bottom: PixelCell): Cell {
+  if (top && bottom) return { fg: top, bg: bottom, ch: "▀" }
+  if (top) return { fg: top, bg: null, ch: "▀" }
+  if (bottom) return { fg: bottom, bg: null, ch: "▄" }
   return { fg: null, bg: null, ch: " " }
 }
 
@@ -36,7 +30,7 @@ function sameCell(a: Cell, b: Cell): boolean {
 }
 
 /** Merge one row-pair into runs of identical cells to keep span count low. */
-export function encodeHalves(top: string, bottom: string): CellRun[] {
+export function encodeHalves(top: PixelRow, bottom: PixelRow): CellRun[] {
   const runs: CellRun[] = []
   let current: Cell | null = null
   let text = ""
@@ -46,7 +40,7 @@ export function encodeHalves(top: string, bottom: string): CellRun[] {
   }
   const width = Math.max(top.length, bottom.length)
   for (let i = 0; i < width; i++) {
-    const cell = cellFor(top[i] ?? ".", bottom[i] ?? ".")
+    const cell = cellFor(top[i] ?? null, bottom[i] ?? null)
     if (!current || !sameCell(current, cell)) {
       flush()
       current = cell
@@ -60,8 +54,8 @@ export function encodeHalves(top: string, bottom: string): CellRun[] {
 export function PixelSprite(props: { status: AgentStatus; tick: number }) {
   const pairs = () => {
     const frame = FRAMES[props.status][props.tick % FRAMES[props.status].length]
-    const out: Array<readonly [string, string]> = []
-    for (let i = 0; i < frame.length; i += 2) out.push([frame[i], frame[i + 1] ?? ""])
+    const out: Array<readonly [PixelRow, PixelRow]> = []
+    for (let i = 0; i < frame.length; i += 2) out.push([frame[i], frame[i + 1] ?? []])
     return out
   }
   return (

@@ -1,7 +1,8 @@
 # Petsy — pastel pixel buddy for OpenCode TUI
 
-A cute, super-lightweight soot-sprite avatar that sits above the composer (top-right by default)
-and shows what the agent is doing.
+A cute, super-lightweight soot-sprite avatar that stands on the input bar
+(top-right by default) and shows what the agent is doing.
+It renders in-flow directly above the composer, right-aligned.
 
 States: `idle` `thinking` `idea` `writing` `researching` `reading` `complete` `confused` `error`.
 `done` / `error` auto-revert to `idle` after 3s.
@@ -42,13 +43,13 @@ node scripts/preview.mjs researching
 - `src/index.ts` — server stub (no-op, required for plugin loading)
 - `src/tui.tsx` — TUI entry: registers `session.composer.top` slot (right-aligned)
 - `src/avatar/Avatar.tsx` — Solid component: event → state mapper, 5fps timer only while busy
-- `src/avatar/frames.ts` — 9 states × 2 pixel maps (24×24), 8-bit palette, pastel purple `#C8B6FF`
+- `src/avatar/frames.ts` — 9 states × 2 truecolor maps (16×20, exact-half downsample of 32×40 native sources with hand-tuned faces/props, `null` = transparent), 8-bit palette kept for hand-drawn props + brand reference
 - `src/avatar/pixel.tsx` — pairs pixel rows into quadrant-block spans (2×2 px per cell): 24×24 art in a 12×12 footprint
 - `src/avatar/status.ts` — tool-name → state mapping
 
 ## Perf notes
 
-- ~5KB of pixel-map strings + 16-color palette, zero image/rig deps
+- ~53KB of truecolor pixel data (exact RGB, native sources + tuned compact set, zero image/rig deps)
 - ~100 quadrant `<span>` segments per frame, re-rendered at most 5×/s while busy
 - One `setInterval` per visible composer, cleared on unmount
 - Idle blinks every ~3s; `done`/`error` are static then revert
