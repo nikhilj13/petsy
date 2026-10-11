@@ -8,7 +8,23 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const framesSrc = readFileSync(path.join(root, "src/avatar/frames.ts"), "utf8")
 
 const STATES = ["idle", "thinking", "web-search", "reading", "writing", "done", "error"]
-const PIXEL_KEYS = new Set([".", "K", "P", "p", "h", "W", "B", "Y", "y", "G", "g", "R", "N", "n"])
+const PIXEL_KEYS = new Set([
+  ".",
+  "K",
+  "P",
+  "p",
+  "h",
+  "W",
+  "B",
+  "Y",
+  "y",
+  "G",
+  "g",
+  "R",
+  "N",
+  "n",
+  "S",
+])
 
 function blockFor(state) {
   const key = framesSrc.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
@@ -25,18 +41,18 @@ function blockFor(state) {
 }
 
 describe("frames", () => {
-  it("defines all 7 states with 2 frames of 10 rows", () => {
+  it("defines all 7 states with 2 frames of 16 rows", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{13})"/g)].map((m) => m[1])
-      assert.equal(rows.length, 20, `${state}: expected 20 pixel rows, got ${rows.length}`)
+      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{16})"/g)].map((m) => m[1])
+      assert.equal(rows.length, 32, `${state}: expected 32 pixel rows, got ${rows.length}`)
     }
   })
 
-  it("keeps every row rectangular (13px) with known palette keys", () => {
+  it("keeps every row rectangular (16px) with known palette keys", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{13})"/g)].map((m) => m[1])
+      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{16})"/g)].map((m) => m[1])
       for (const row of rows) {
-        assert.equal(row.length, 13, `${state}: bad width: ${JSON.stringify(row)}`)
+        assert.equal(row.length, 16, `${state}: bad width: ${JSON.stringify(row)}`)
         for (const ch of row) {
           assert.ok(PIXEL_KEYS.has(ch), `${state}: unknown pixel ${JSON.stringify(ch)}`)
         }
@@ -49,7 +65,7 @@ describe("frames", () => {
     assert.ok(framesSrc.includes("#E06C75"), "missing error red")
   })
 
-  it("has no tabs or trailing spaces in art", () => {
+  it("has no tabs in art", () => {
     assert.ok(!framesSrc.includes("\t"), "frames must not contain tabs")
   })
 })
