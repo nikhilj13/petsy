@@ -42,14 +42,14 @@ node scripts/preview.mjs researching
 - `src/index.ts` — server stub (no-op, required for plugin loading)
 - `src/tui.tsx` — TUI entry: registers `session.composer.top` slot (right-aligned)
 - `src/avatar/Avatar.tsx` — Solid component: event → state mapper, 5fps timer only while busy
-- `src/avatar/frames.ts` — 7 states × 2 pixel maps (20×24), 8-bit palette, pastel purple `#C8B6FF`
-- `src/avatar/pixel.tsx` — pairs pixel rows into half-block (`▀`/`▄`) spans: 20×24 art in a 20×12 footprint
+- `src/avatar/frames.ts` — 9 states × 2 pixel maps (24×24), 8-bit palette, pastel purple `#C8B6FF`
+- `src/avatar/pixel.tsx` — pairs pixel rows into quadrant-block spans (2×2 px per cell): 24×24 art in a 12×12 footprint
 - `src/avatar/status.ts` — tool-name → state mapping
 
 ## Perf notes
 
-- ~4KB of pixel-map strings + 15-color palette, zero image/rig deps
-- ~50 half-block `<span>` segments per frame, re-rendered at most 5×/s while busy
+- ~5KB of pixel-map strings + 16-color palette, zero image/rig deps
+- ~100 quadrant `<span>` segments per frame, re-rendered at most 5×/s while busy
 - One `setInterval` per visible composer, cleared on unmount
 - Idle blinks every ~3s; `done`/`error` are static then revert
 - Respects `animations: false`
