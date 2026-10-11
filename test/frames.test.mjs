@@ -41,18 +41,18 @@ function blockFor(state) {
 }
 
 describe("frames", () => {
-  it("defines all 7 states with 2 frames of 16 rows", () => {
+  it("defines all 7 states with 2 frames of 24 rows", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{16})"/g)].map((m) => m[1])
-      assert.equal(rows.length, 32, `${state}: expected 32 pixel rows, got ${rows.length}`)
+      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{20})"/g)].map((m) => m[1])
+      assert.equal(rows.length, 48, `${state}: expected 48 pixel rows, got ${rows.length}`)
     }
   })
 
-  it("keeps every row rectangular (16px) with known palette keys", () => {
+  it("keeps every row rectangular (20px) with known palette keys", () => {
     for (const state of STATES) {
-      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{16})"/g)].map((m) => m[1])
+      const rows = [...blockFor(state).matchAll(/"([.A-Za-z]{20})"/g)].map((m) => m[1])
       for (const row of rows) {
-        assert.equal(row.length, 16, `${state}: bad width: ${JSON.stringify(row)}`)
+        assert.equal(row.length, 20, `${state}: bad width: ${JSON.stringify(row)}`)
         for (const ch of row) {
           assert.ok(PIXEL_KEYS.has(ch), `${state}: unknown pixel ${JSON.stringify(ch)}`)
         }

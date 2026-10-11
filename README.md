@@ -42,8 +42,8 @@ node scripts/preview.mjs web-search
 - `src/index.ts` — server stub (no-op, required for plugin loading)
 - `src/tui.tsx` — TUI entry: registers `session.composer.top` slot (right-aligned)
 - `src/avatar/Avatar.tsx` — Solid component: event → state mapper, 5fps timer only while busy
-- `src/avatar/frames.ts` — 7 states × 2 pixel maps (16×16), 8-bit palette, pastel purple `#C8B6FF`
-- `src/avatar/pixel.tsx` — pairs pixel rows into half-block (`▀`/`▄`) spans: 16×16 art in a 16×8 footprint
+- `src/avatar/frames.ts` — 7 states × 2 pixel maps (20×24), 8-bit palette, pastel purple `#C8B6FF`
+- `src/avatar/pixel.tsx` — pairs pixel rows into half-block (`▀`/`▄`) spans: 20×24 art in a 20×12 footprint
 - `src/avatar/status.ts` — tool-name → state mapping
 
 ## Perf notes
