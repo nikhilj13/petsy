@@ -2,59 +2,52 @@ import { For } from "solid-js"
 import { FRAMES, PALETTE } from "./frames.js"
 import type { AgentStatus } from "./status.js"
 
-// Quadrant-block rendering: each terminal cell shows a 2x2 pixel group,
-// so 24x24 art fits in 12 cols x 12 rows — 4 pixels per cell instead of 2.
-// One cell carries at most two colors (fg + bg); extra colors at busy
-// junctions are dropped by fixed priority (first-seen wins).
+// 16x16 pixel maps render as 16 cols x 8 rows: each terminal cell shows two
+// vertical pixels via half-blocks ("▀" = top pixel, "▄" = bottom pixel),
+// which doubles detail while shrinking the sprite footprint.
 export interface CellRun {
   readonly fg: string | null
   readonly bg: string | null
   readonly text: string
 }
 
-// Bit order: TL=1, TR=2, BL=4, BR=8.
-const QUAD = [" ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"]
-const BIT = [1, 2, 4, 8]
+interface Cell {
+  readonly fg: string | null
+  readonly bg: string | null
+  readonly ch: string
+}
 
-function pixelAt(row: string, x: number): string | null {
-  const ch = x < row.length ? row[x] : "."
+function paletteOf(ch: string): string | null {
   if (ch === ".") return null
   return PALETTE[ch] ?? null
 }
 
-/** Encode one pair of pixel rows into quadrant cells (2px per cell). */
-export function encodeQuads(top: string, bottom: string): CellRun[] {
+function cellFor(top: string, bottom: string): Cell {
+  const t = paletteOf(top)
+  const b = paletteOf(bottom)
+  if (t && b) return { fg: t, bg: b, ch: "▀" }
+  if (t) return { fg: t, bg: null, ch: "▀" }
+  if (b) return { fg: b, bg: null, ch: "▄" }
+  return { fg: null, bg: null, ch: " " }
+}
+
+function sameCell(a: Cell, b: Cell): boolean {
+  return a.fg === b.fg && a.bg === b.bg && a.ch === b.ch
+}
+
+/** Merge one row-pair into runs of identical cells to keep span count low. */
+export function encodeHalves(top: string, bottom: string): CellRun[] {
   const runs: CellRun[] = []
-  let current: { fg: string | null; bg: string | null; ch: string } | null = null
+  let current: Cell | null = null
   let text = ""
   const flush = () => {
     if (current && text) runs.push({ fg: current.fg, bg: current.bg, text })
     text = ""
   }
   const width = Math.max(top.length, bottom.length)
-  for (let x = 0; x < width; x += 2) {
-    const px = [pixelAt(top, x), pixelAt(top, x + 1), pixelAt(bottom, x), pixelAt(bottom, x + 1)]
-    const colors: string[] = []
-    for (const c of px) {
-      if (c !== null && !colors.includes(c)) colors.push(c)
-    }
-    let cell: { fg: string | null; bg: string | null; ch: string }
-    if (colors.length === 0) {
-      cell = { fg: null, bg: null, ch: " " }
-    } else {
-      const fg = colors[0]
-      const rest = px.filter((c) => c !== null && c !== fg)
-      const hasTransparent = px.some((c) => c === null)
-      // Terminal cells can't show transparency over a bg color, so a cell
-      // touching transparency drops its bg (minority pixels follow).
-      const bg = !hasTransparent && rest.length > 0 ? (rest[0] as string) : null
-      let mask = 0
-      for (let i = 0; i < 4; i++) {
-        if (px[i] === fg) mask |= BIT[i]
-      }
-      cell = { fg, bg, ch: QUAD[mask] }
-    }
-    if (!current || current.fg !== cell.fg || current.bg !== cell.bg || current.ch !== cell.ch) {
+  for (let i = 0; i < width; i++) {
+    const cell = cellFor(top[i] ?? ".", bottom[i] ?? ".")
+    if (!current || !sameCell(current, cell)) {
       flush()
       current = cell
     }
@@ -75,7 +68,7 @@ export function PixelSprite(props: { status: AgentStatus; tick: number }) {
     <For each={pairs()}>
       {([top, bottom]) => (
         <text selectable={false}>
-          <For each={encodeQuads(top, bottom)}>
+          <For each={encodeHalves(top, bottom)}>
             {(run) =>
               run.fg || run.bg ? (
                 <PixelRun fg={run.fg} bg={run.bg} text={run.text} />
