@@ -28,7 +28,7 @@ function extractPalette() {
 }
 
 function extractFrames() {
-  const states = ["idle", "thinking", "web-search", "reading", "writing", "done", "error"]
+  const states = ["idle", "thinking", "idea", "writing", "researching", "reading", "complete", "confused", "error"]
   const out = {}
   for (const state of states) {
     const key = src.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
@@ -45,8 +45,8 @@ function extractFrames() {
       .filter((n) => n !== -1)
     const end = Math.min(...nextStarts, src.length)
     const block = src.slice(start, end)
-    const rows = [...block.matchAll(/"([.A-Za-z]{16})"/g)].map((m) => m[1])
-    out[state] = [rows.slice(0, 16), rows.slice(16, 32)]
+    const rows = [...block.matchAll(/"([.A-Za-z]{24})"/g)].map((m) => m[1])
+    out[state] = [rows.slice(0, 24), rows.slice(24, 48)]
   }
   return out
 }
@@ -77,7 +77,7 @@ for (const [state, pair] of Object.entries(frames)) {
     console.log(`--- ${state} frame ${i + 1} ---`)
     for (let r = 0; r < frame.length; r += 2) {
       let line = ""
-      for (let c = 0; c < 16; c++) line += cell(frame[r][c], frame[r + 1][c], palette)
+      for (let c = 0; c < 24; c++) line += cell(frame[r][c], frame[r + 1][c], palette)
       console.log(line)
     }
     console.log()

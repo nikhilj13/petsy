@@ -8,7 +8,7 @@ function toolNameToStatus(toolName) {
   const name = String(toolName).toLowerCase()
   const has = (...needles) => needles.some((n) => name.includes(n))
   if (has("websearch", "webfetch", "web_search", "browser", "tavily", "fetch", "curl", "codesearch"))
-    return "web-search"
+    return "researching"
   if (has("read", "glob", "grep", "list", "ls", "lsp", "diagnostics", "symbol", "codesearch"))
     return "reading"
   if (has("edit", "write", "patch", "apply", "bash", "shell", "exec", "todo", "task")) return "writing"
@@ -16,9 +16,9 @@ function toolNameToStatus(toolName) {
 }
 
 describe("toolNameToStatus", () => {
-  it("maps web tools to web-search", () => {
-    assert.equal(toolNameToStatus("websearch"), "web-search")
-    assert.equal(toolNameToStatus("webfetch"), "web-search")
+  it("maps web tools to researching", () => {
+    assert.equal(toolNameToStatus("websearch"), "researching")
+    assert.equal(toolNameToStatus("webfetch"), "researching")
   })
   it("maps read tools to reading", () => {
     assert.equal(toolNameToStatus("read"), "reading")

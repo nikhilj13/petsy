@@ -3,7 +3,7 @@
 A cute, super-lightweight soot-sprite avatar that sits above the composer (top-right by default)
 and shows what the agent is doing.
 
-States (V1): `idle` `thinking` `web-search` `reading` `writing` `done` `error`.
+States: `idle` `thinking` `idea` `writing` `researching` `reading` `complete` `confused` `error`.
 `done` / `error` auto-revert to `idle` after 3s.
 
 ## Install (local dev)
@@ -34,7 +34,7 @@ Then run `opencode` from any project. The buddy appears above the input box.
 ```sh
 npm test
 node scripts/preview.mjs
-node scripts/preview.mjs web-search
+node scripts/preview.mjs researching
 ```
 
 ## Layout

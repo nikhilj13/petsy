@@ -64,19 +64,40 @@ export function Avatar(props: AvatarProps) {
   // Idle blink state machine: eyes stay open, then shut briefly.
   let idleTicks = 0
   let blinkLeft = 0
+  // True once a tool has run in the current execution (for the idea moment).
+  let toolsRanThisTurn = false
+  let ideaTimer: ReturnType<typeof setTimeout> | undefined
+
+  const clearIdeaTimer = () => {
+    if (ideaTimer) {
+      clearTimeout(ideaTimer)
+      ideaTimer = undefined
+    }
+  }
 
   const show = (next: AgentStatus) => {
     if (revertTimer) {
       clearTimeout(revertTimer)
       revertTimer = undefined
     }
+    if (next !== "idea") clearIdeaTimer()
     setStatus((prev) => {
       if (prev !== next) setTick(0)
       return next
     })
-    if (next === "done" || next === "error") {
+    if (next === "complete" || next === "error") {
       revertTimer = setTimeout(() => setStatus("idle"), props.doneTimeoutMs)
     }
+    // Confused is sticky until the next event (it needs the user's attention).
+  }
+
+  /** Flash the lightbulb when text follows tool findings, then settle. */
+  const showIdea = () => {
+    show("idea")
+    clearIdeaTimer()
+    ideaTimer = setTimeout(() => {
+      if (status() === "idea") show("thinking")
+    }, 2500)
   }
 
   onMount(() => {
@@ -94,10 +115,23 @@ export function Avatar(props: AvatarProps) {
 
       switch (event.type) {
         case "session.execution.started":
-        case "session.text.started":
-        case "session.reasoning.started":
+          toolsRanThisTurn = false
           show("thinking")
           break
+        case "session.text.started":
+        case "session.reasoning.started": {
+          const current = status()
+          if (
+            toolsRanThisTurn &&
+            (current === "researching" || current === "reading" || current === "writing")
+          ) {
+            // Findings just landed — flash the "new idea" bulb, then settle.
+            showIdea()
+          } else {
+            show("thinking")
+          }
+          break
+        }
         case "session.tool.called": {
           const toolCallID = (data as { id?: string } | undefined)?.id
           const name = toolCallID
@@ -106,22 +140,31 @@ export function Avatar(props: AvatarProps) {
                 toolCallID,
               )
             : undefined
+          toolsRanThisTurn = true
           show(toolNameToStatus(name))
           break
         }
         case "session.message.content.updated": {
           const content = (data as { content?: unknown } | undefined)?.content
           const name = lastToolName(content)
-          if (name) show(toolNameToStatus(name))
+          if (name) {
+            toolsRanThisTurn = true
+            show(toolNameToStatus(name))
+          }
           break
         }
         case "session.execution.succeeded":
-          show("done")
+          show("complete")
           break
         case "session.execution.failed":
         case "session.step.failed":
-        case "permission.asked":
           show("error")
+          break
+        case "permission.asked":
+          show("confused")
+          break
+        case "permission.replied":
+          show("thinking")
           break
         case "session.execution.interrupted":
         case "session.idle":
@@ -164,6 +207,7 @@ export function Avatar(props: AvatarProps) {
       stopListening()
       if (interval) clearInterval(interval)
       if (revertTimer) clearTimeout(revertTimer)
+      clearIdeaTimer()
     })
   })
 

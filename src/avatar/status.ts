@@ -3,10 +3,12 @@
 export type AgentStatus =
   | "idle"
   | "thinking"
-  | "web-search"
-  | "reading"
+  | "idea"
   | "writing"
-  | "done"
+  | "researching"
+  | "reading"
+  | "complete"
+  | "confused"
   | "error"
 
 export type AvatarPosition = "top-right" | "top-left" | "hidden"
@@ -71,7 +73,7 @@ function includesAny(name: string, needles: string[]): boolean {
 export function toolNameToStatus(toolName: string | undefined | null): AgentStatus {
   if (!toolName) return "thinking"
   const name = toolName.toLowerCase()
-  if (includesAny(name, WEB_TOOLS)) return "web-search"
+  if (includesAny(name, WEB_TOOLS)) return "researching"
   if (includesAny(name, READ_TOOLS)) return "reading"
   if (includesAny(name, WRITE_TOOLS)) return "writing"
   return "thinking"
@@ -79,5 +81,11 @@ export function toolNameToStatus(toolName: string | undefined | null): AgentStat
 
 /** States that animate every frame vs. static / slow blink. */
 export function isAnimatedStatus(status: AgentStatus): boolean {
-  return status === "thinking" || status === "web-search" || status === "reading" || status === "writing"
+  return (
+    status === "thinking" ||
+    status === "researching" ||
+    status === "reading" ||
+    status === "writing" ||
+    status === "idea"
+  )
 }
