@@ -7,22 +7,36 @@ import { fileURLToPath } from "node:url"
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const src = readFileSync(path.join(root, "src/avatar/frames.ts"), "utf8")
 
-const PURPLE = "\x1b[38;2;200;182;255m"
-const RED = "\x1b[38;2;255;157;157m"
 const RESET = "\x1b[0m"
 
+function hexToAnsi(hex) {
+  const m = hex.replace("#", "")
+  const r = parseInt(m.slice(0, 2), 16)
+  const g = parseInt(m.slice(2, 4), 16)
+  const b = parseInt(m.slice(4, 6), 16)
+  return `\x1b[38;2;${r};${g};${b}m`
+}
+
+function extractPalette() {
+  const out = {}
+  for (const m of src.matchAll(/^\s*([A-Za-z]):\s*"(#[0-9A-Fa-f]{6})"|^\s*([A-Za-z]):\s*[A-Z_]+/gm)) {
+    // Handles `K: "#55506B"` entries; constant refs (P/R) resolved below.
+    if (m[1] && m[2]) out[m[1]] = m[2]
+  }
+  const pastel = (src.match(/PASTEL_PURPLE\s*=\s*"(#[0-9A-Fa-f]{6})"/) ?? [])[1]
+  const errRed = (src.match(/ERROR_RED\s*=\s*"(#[0-9A-Fa-f]{6})"/) ?? [])[1]
+  if (pastel) out.P = pastel
+  if (errRed) out.R = errRed
+  return out
+}
+
 function extractFrames() {
-  // Very small parser: find each `state: [` block and pull quoted rows in order.
-  // Frames file format is stable (2 frames per state, 9 rows each).
   const states = ["idle", "thinking", "web-search", "reading", "writing", "done", "error"]
   const out = {}
   for (const state of states) {
-    const start =
-      src.indexOf(`${state}: [`) !== -1
-        ? src.indexOf(`${state}: [`)
-        : src.indexOf(`"${state}": [`)
+    const key = src.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
+    const start = src.indexOf(key)
     if (start === -1) continue
-    // Find the next state block or end of FRAMES to bound the search.
     const nextStarts = states
       .map((s) => {
         if (s === state) return Infinity
@@ -34,23 +48,42 @@ function extractFrames() {
       .filter((n) => n !== -1)
     const end = Math.min(...nextStarts, src.length)
     const block = src.slice(start, end)
-    const rows = [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
-      .map((m) => m[1].replace(/\\_/g, "_"))
-      .filter((r) => r !== state)
-    // First two quoted strings in block are not rows if short — filter to row-like.
-    const frameRows = rows.filter((r) => r.length >= 9)
-    out[state] = [frameRows.slice(0, 9), frameRows.slice(9, 18)]
+    // Pixel rows are exactly 13 chars of palette keys / dots.
+    const rows = [...block.matchAll(/"([.A-Za-z]{13})"/g)].map((m) => m[1])
+    out[state] = [rows.slice(0, 10), rows.slice(10, 20)]
   }
   return out
 }
 
+function renderRow(row, palette) {
+  let out = ""
+  let current = null
+  let buf = ""
+  const flush = () => {
+    if (!buf) return
+    out += current ? `${hexToAnsi(palette[current])}${"██".repeat(buf.length)}${RESET}` : "  ".repeat(buf.length)
+    buf = ""
+  }
+  for (const ch of row) {
+    const key = ch === "." ? null : ch
+    if (key !== current) {
+      flush()
+      current = key
+    }
+    buf += ch
+  }
+  flush()
+  return out
+}
+
 const only = process.argv[2]
+const palette = extractPalette()
 const frames = extractFrames()
 for (const [state, pair] of Object.entries(frames)) {
   if (only && state !== only) continue
-  const color = state === "error" ? RED : PURPLE
   pair.forEach((frame, i) => {
-    console.log(`${color}--- ${state} frame ${i + 1} ---${RESET}`)
-    console.log(color + frame.join("\n") + RESET + "\n")
+    console.log(`--- ${state} frame ${i + 1} ---`)
+    for (const row of frame) console.log(renderRow(row, palette))
+    console.log()
   })
 }

@@ -40,12 +40,14 @@ node scripts/preview.mjs web-search
 - `src/index.ts` — server stub (no-op, required for plugin loading)
 - `src/tui.tsx` — TUI entry: registers `session.composer.top` slot (right-aligned)
 - `src/avatar/Avatar.tsx` — Solid component: event → state mapper, 5fps timer only while busy
-- `src/avatar/frames.ts` — 7 states × 2 ASCII frames, pastel purple `#C8B6FF`, error red
+- `src/avatar/frames.ts` — 7 states × 2 pixel maps (13×10), 8-bit palette, pastel purple `#C8B6FF`
+- `src/avatar/pixel.tsx` — run-length encodes pixel rows into `<span style>` segments (`██` per pixel)
 - `src/avatar/status.ts` — tool-name → state mapping
 
 ## Perf notes
 
-- ~6KB of string frames, zero image/rig deps
+- ~3KB of pixel-map strings + 14-color palette, zero image/rig deps
+- ~70 `<span>` segments per frame, re-rendered at most 5×/s while busy
 - One `setInterval` per visible composer, cleared on unmount
 - Idle blinks every ~3s; `done`/`error` are static then revert
 - Respects `animations: false`

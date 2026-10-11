@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { usePlugin } from "@opencode/plugin/tui"
-import { FRAMES, STATUS_COLOR, frameFor } from "./frames.js"
+import { FRAMES } from "./frames.js"
+import { PixelSprite } from "./pixel.js"
 import { isAnimatedStatus, toolNameToStatus, type AgentStatus, type AvatarPosition } from "./status.js"
 
 export interface AvatarProps {
@@ -153,9 +154,7 @@ export function Avatar(props: AvatarProps) {
         flexDirection="column"
         alignItems={props.position === "top-left" ? "flex-start" : "flex-end"}
       >
-        <text fg={STATUS_COLOR[status()]} selectable={false}>
-          {frameFor(status(), tick())}
-        </text>
+        <PixelSprite status={status()} tick={tick()} />
       </box>
     </Show>
   )
