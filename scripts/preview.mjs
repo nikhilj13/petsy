@@ -51,13 +51,20 @@ function extractFrames() {
   return out
 }
 
+function fg(rgb) {
+  return `38;2;${rgb[0]};${rgb[1]};${rgb[2]}`
+}
+
+function bg(rgb) {
+  return `48;2;${rgb[0]};${rgb[1]};${rgb[2]}`
+}
+
 function cell(top, bottom, palette) {
   const t = top === "." ? null : palette[top]
   const b = bottom === "." ? null : palette[bottom]
-  if (t && b)
-    return `\x1b[38;2;${t}m\x1b[48;2;${b}m▀${RESET}`
-  if (t) return `\x1b[38;2;${t}m▀${RESET}`
-  if (b) return `\x1b[38;2;${b}m▄${RESET}`
+  if (t && b) return `\x1b[${fg(t)};${bg(b)}m▀${RESET}`
+  if (t) return `\x1b[${fg(t)}m▀${RESET}`
+  if (b) return `\x1b[${fg(b)}m▄${RESET}`
   return " "
 }
 
