@@ -22,6 +22,10 @@ export interface PetsyOptions {
   doneTimeoutMs?: number
   /** Render nothing at all. Useful for tests / minimal terminals. */
   enabled?: boolean
+  /** Ms between idle blinks. Default 3000. */
+  blinkEveryMs?: number
+  /** How long the shut-eye frame shows per blink. Default 500. */
+  blinkHoldMs?: number
 }
 
 const WEB_TOOLS = [

@@ -15,9 +15,11 @@ States (V1): `idle` `thinking` `web-search` `reading` `writing` `done` `error`.
       "package": "/absolute/path/to/petsy",
       "options": {
         "position": "top-right", // top-right | top-left | hidden (V1)
-        "fps": 5, // 1-12, default 5. Busy states only; idle blinks slowly.
+        "fps": 5, // 1-12, default 5. Busy states only; idle blinks on its own timer.
         "animations": true, // false = static frame
         "doneTimeoutMs": 3000,
+        "blinkEveryMs": 3000, // ms between idle blinks
+        "blinkHoldMs": 500, // how long the shut-eye shows per blink
         "enabled": true
       }
     }

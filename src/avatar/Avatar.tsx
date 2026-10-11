@@ -11,6 +11,10 @@ export interface AvatarProps {
   readonly animations: boolean
   readonly doneTimeoutMs: number
   readonly enabled: boolean
+  /** Ms between idle blinks. Default 3000. */
+  readonly blinkEveryMs: number
+  /** How long the shut-eye frame shows per blink. Default 500. */
+  readonly blinkHoldMs: number
 }
 
 type ToolContent = { readonly type: string; readonly name?: string; readonly id?: string }
@@ -57,7 +61,9 @@ export function Avatar(props: AvatarProps) {
 
   let revertTimer: ReturnType<typeof setTimeout> | undefined
   let interval: ReturnType<typeof setInterval> | undefined
-  let tickCount = 0
+  // Idle blink state machine: eyes stay open, then shut briefly.
+  let idleTicks = 0
+  let blinkLeft = 0
 
   const show = (next: AgentStatus) => {
     if (revertTimer) {
@@ -128,14 +134,28 @@ export function Avatar(props: AvatarProps) {
 
     if (props.animations && props.enabled) {
       const ms = Math.max(120, Math.floor(1000 / Math.max(1, props.fps)))
+      const blinkEveryTicks = Math.max(1, Math.round(props.blinkEveryMs / ms))
+      const blinkHoldTicks = Math.max(1, Math.round(props.blinkHoldMs / ms))
+      const blinkFrame = Math.min(1, FRAMES.idle.length - 1)
       interval = setInterval(() => {
-        tickCount++
         const current = status()
         if (isAnimatedStatus(current)) {
           setTick((t) => (t + 1) % FRAMES[current].length)
-        } else if (current === "idle" && tickCount % 15 === 0) {
-          // Slow blink so idle stays calm and cheap.
-          setTick((t) => (t + 1) % FRAMES.idle.length)
+          idleTicks = 0
+          blinkLeft = 0
+        } else if (current === "idle") {
+          if (blinkLeft > 0) {
+            // Shut-eye hold: count down, then reopen.
+            blinkLeft--
+            if (blinkLeft === 0) setTick(0)
+          } else {
+            idleTicks++
+            if (idleTicks >= blinkEveryTicks) {
+              idleTicks = 0
+              blinkLeft = blinkHoldTicks
+              setTick(blinkFrame)
+            }
+          }
         }
       }, ms)
     }
