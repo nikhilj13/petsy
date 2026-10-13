@@ -1,5 +1,5 @@
 import { For } from "solid-js"
-import { FRAMES, type PixelCell, type PixelRow } from "./frames.js"
+import { DEFAULT_SKIN, FRAMES, type PixelCell, type PixelRow, type Skin } from "./frames.js"
 import type { AgentStatus } from "./status.js"
 
 // 20px-wide truecolor maps render as 20 cols x 12 rows: each terminal cell
@@ -51,9 +51,10 @@ export function encodeHalves(top: PixelRow, bottom: PixelRow): CellRun[] {
   return runs
 }
 
-export function PixelSprite(props: { status: AgentStatus; tick: number }) {
+export function PixelSprite(props: { status: AgentStatus; tick: number; skin?: Skin }) {
   const pairs = () => {
-    const frame = FRAMES[props.status][props.tick % FRAMES[props.status].length]
+    const frames = FRAMES[props.skin ?? DEFAULT_SKIN][props.status]
+    const frame = frames[props.tick % frames.length]
     const out: Array<readonly [PixelRow, PixelRow]> = []
     for (let i = 0; i < frame.length; i += 2) out.push([frame[i], frame[i + 1] ?? []])
     return out

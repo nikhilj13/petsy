@@ -1,7 +1,9 @@
-# Petsy — pastel pixel buddy for OpenCode TUI
+# Petsy — pixel buddy for OpenCode TUI
 
-A cute, super-lightweight soot-sprite avatar that stands on the input bar
+A cute, super-lightweight pixel avatar that stands on the input bar
 (top-right by default) and shows what the agent is doing.
+Two switchable skins via the `skin` option: `cat` (orange tabby) and
+`claws` (classic space invader).
 It renders in-flow directly above the composer, right-aligned.
 
 States: `idle` `thinking` `idea` `writing` `researching` `reading` `complete` `confused` `error`.
@@ -13,22 +15,25 @@ Sprite art is generated, not hand-maintained:
 
 ```sh
 python3 tools/generate_frames.py    # regenerates src/avatar/frames.ts
-python3 tools/render_preview.py     # preview/petsy-frames.png + petsy-demo.gif
+python3 tools/render_preview.py     # preview sheets + GIFs, one per skin
 ```
 
-`tools/generate_frames.py` draws the soot sprite in layers (fur silhouette,
-gradient shading, glossy eyes, per-state props + particle systems) and emits
-compact palette-indexed frames. Edit the generator, not `frames.ts`.
+`tools/generate_frames.py` draws each skin in layers (cat: rounded fur
+silhouette, ears, striped tail, glossy eyes; claws: bitmap-stamped invader
+with two-frame leg shuffle) plus shared per-state props and particles, and
+emits compact palette-indexed frames per skin. Edit the generator, not
+`frames.ts`.
 
 ## Install (local dev)
 
-```jsonc // ~/.config/opencode/opencode.json
+```jsonc // ~/.config/opencode/opencode.jsonc
 {
-  "plugins": [
-    {
-      // Absolute path to your local clone of this repo
-      "package": "/absolute/path/to/petsy",
-      "options": {
+  // OpenCode passes plugin options as the second tuple element.
+  "plugin": [
+    [
+      "/absolute/path/to/petsy", // absolute path to your local clone
+      {
+        "skin": "cat", // cat | claws — the orange tabby or the classic space invader
         "position": "top-right", // top-right | top-left | hidden (V1)
         "fps": 8, // 1-12, default 8. Busy states only; idle blinks on its own timer.
         "animations": true, // false = static frame
@@ -37,7 +42,7 @@ compact palette-indexed frames. Edit the generator, not `frames.ts`.
         "blinkHoldMs": 500, // how long the shut-eye shows per blink
         "enabled": true
       }
-    }
+    ]
   ]
 }
 ```

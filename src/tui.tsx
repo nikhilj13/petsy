@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { Avatar } from "./avatar/Avatar.js"
+import { DEFAULT_SKIN, type Skin } from "./avatar/frames.js"
 import type { AvatarPosition } from "./avatar/status.js"
 
 function asPosition(value: unknown): AvatarPosition {
@@ -33,6 +34,7 @@ export default Plugin.define({
     const enabled = options.enabled !== false
     const blinkEveryMs = asMs(options.blinkEveryMs, 3000)
     const blinkHoldMs = asMs(options.blinkHoldMs, 500)
+    const skin: Skin = options.skin === "claws" || options.skin === "cat" ? options.skin : DEFAULT_SKIN
 
     const removeSlot = context.ui.slot({
       append: "session.composer.top",
@@ -42,6 +44,7 @@ export default Plugin.define({
           position={position}
           fps={fps}
           animations={animations}
+          skin={skin}
           doneTimeoutMs={doneTimeoutMs}
           enabled={enabled}
           blinkEveryMs={blinkEveryMs}

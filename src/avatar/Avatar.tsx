@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { usePlugin } from "@opencode/plugin/tui"
-import { FRAMES } from "./frames.js"
+import { DEFAULT_SKIN, FRAMES, type Skin } from "./frames.js"
 import { PixelSprite } from "./pixel.js"
 import { isAnimatedStatus, toolNameToStatus, type AgentStatus, type AvatarPosition } from "./status.js"
 
@@ -9,6 +9,8 @@ export interface AvatarProps {
   readonly position: AvatarPosition
   readonly fps: number
   readonly animations: boolean
+  /** Sprite skin: "cat" or "claws". */
+  readonly skin: Skin
   readonly doneTimeoutMs: number
   readonly enabled: boolean
   /** Ms between idle blinks. Default 3000. */
@@ -179,11 +181,12 @@ export function Avatar(props: AvatarProps) {
       const ms = Math.max(120, Math.floor(1000 / Math.max(1, props.fps)))
       const blinkEveryTicks = Math.max(1, Math.round(props.blinkEveryMs / ms))
       const blinkHoldTicks = Math.max(1, Math.round(props.blinkHoldMs / ms))
-      const blinkFrame = FRAMES.idle.length - 1 // last idle frame = shut eyes
+      const skinFrames = FRAMES[props.skin ?? DEFAULT_SKIN]
+      const blinkFrame = skinFrames.idle.length - 1 // last idle frame = shut eyes
       interval = setInterval(() => {
         const current = status()
         if (isAnimatedStatus(current)) {
-          setTick((t) => (t + 1) % FRAMES[current].length)
+          setTick((t) => (t + 1) % skinFrames[current].length)
           idleTicks = 0
           blinkLeft = 0
         } else if (current === "idle") {
@@ -218,7 +221,7 @@ export function Avatar(props: AvatarProps) {
         flexDirection="column"
         alignItems={props.position === "top-left" ? "flex-start" : "flex-end"}
       >
-        <PixelSprite status={status()} tick={tick()} />
+        <PixelSprite status={status()} tick={tick()} skin={props.skin} />
       </box>
     </Show>
   )

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Render preview PNG contact sheet + animated GIF from the generated frames.
+"""Render preview PNG contact sheets + animated GIFs from the generated frames.
 
-Parses src/avatar/frames.ts (palette + FRAME_ROWS). No dependencies beyond Pillow.
+Parses src/avatar/frames.ts (per-skin PALETTES + FRAME_ROWS). Pillow only.
 Usage: python3 tools/render_preview.py [outdir]
 """
 import os
@@ -21,23 +21,44 @@ BG = (24, 22, 32)
 
 def parse():
     src = open(FRAMES_TS).read()
-    pal = dict(re.findall(r'"(.)": "(#[0-9a-fA-F]{6})"', src))
+    width = int(re.search(r"SPRITE_WIDTH = (\d+)", src).group(1))
+    height = int(re.search(r"SPRITE_HEIGHT = (\d+)", src).group(1))
+
+    # per-skin palettes
+    pal_block = src[src.index("PALETTES"):src.index("SPRITE_WIDTH")]
+    palettes = {}
+    for skin in ("cat", "claws"):
+        s = pal_block.index(skin + ": {")
+        e = pal_block.index("}", s)
+        palettes[skin] = dict(re.findall(r'"(.)": "(#[0-9a-fA-F]{6})"',
+                                          pal_block[s:e]))
+
+    # per-skin frame rows
     block = src[src.index("FRAME_ROWS"):]
-    states = re.findall(r"(\w+): \[", block)
-    frames = {}
-    for i, st in enumerate(states):
-        start = block.index(f"{st}: [")
-        end = len(block)
-        for other in states:
-            if other == st:
+    rows_by_skin = {}
+    for skin in ("cat", "claws"):
+        s = block.index(skin + ": {")
+        e = len(block)
+        for other in ("cat", "claws"):
+            if other == skin:
                 continue
-            j = block.find(f"\n  {other}: [", start + 1)
-            if j != -1 and j < end:
-                end = j
-        body = block[start:end]
-        rows = re.findall(r'"([.0-9a-zA-Z]+)"', body)
-        frames[st] = [rows[k:k + 30] for k in range(0, len(rows), 30)]
-    return pal, frames
+            j = block.find("\n  " + other + ": {", s + 1)
+            if j != -1 and j < e:
+                e = j
+        body = block[s:e]
+        states = re.findall(r"^    (\w+): \[", body, re.M)
+        frames = {}
+        for i, st in enumerate(states):
+            start = body.index(f"{st}: [")
+            stop = len(body)
+            for other in states[i + 1:]:
+                j = body.find(f"\n    {other}: [", start + 1)
+                if j != -1 and j < stop:
+                    stop = j
+            rows = re.findall(r'"([.0-9a-zA-Z]+)"', body[start:stop])
+            frames[st] = [rows[k:k + height] for k in range(0, len(rows), height)]
+        rows_by_skin[skin] = frames
+    return palettes, rows_by_skin, width, height
 
 
 def tile(pal, frame):
@@ -58,48 +79,49 @@ def tile(pal, frame):
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "preview")
     os.makedirs(outdir, exist_ok=True)
-    pal, frames = parse()
-    states = list(frames.keys())
+    palettes, skins_frames, width, height = parse()
     nf = 8
-    label_img = None
     try:
         f = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 14)
     except Exception:
         f = ImageFont.load_default()
 
-    tw, th = 24 * SCALE, 30 * SCALE
-    # contact sheet
-    sheet = Image.new("RGB", (PAD + (tw + PAD) * nf + PAD,
-                              PAD + (LABEL_H + th + PAD) * len(states)), BG)
-    d = ImageDraw.Draw(sheet)
-    for si, st in enumerate(states):
-        y0 = PAD + si * (LABEL_H + th + PAD)
-        d.text((PAD, y0), st, fill=(180, 170, 210), font=f)
-        for fi in range(nf):
-            t = tile(pal, frames[st][fi])
-            sheet.paste(t, (PAD + fi * (tw + PAD), y0 + LABEL_H))
-    sheet.save(os.path.join(outdir, "petsy-frames.png"))
-    print("sheet:", os.path.join(outdir, "petsy-frames.png"), sheet.size)
-
-    # gif: cycle all states, 2 loops each
-    fps_ms = 125
-    seq = []
-    for st in states:
-        for rep in range(2):
+    tw, th = width * SCALE, height * SCALE
+    for skin, frames in skins_frames.items():
+        states = list(frames.keys())
+        # contact sheet
+        sheet = Image.new("RGB", (PAD + (tw + PAD) * nf + PAD,
+                                   PAD + (LABEL_H + th + PAD) * len(states)), BG)
+        d = ImageDraw.Draw(sheet)
+        for si, st in enumerate(states):
+            y0 = PAD + si * (LABEL_H + th + PAD)
+            d.text((PAD, y0), st, fill=(180, 170, 210), font=f)
             for fi in range(nf):
-                seq.append((st, fi))
-    gw, gh = tw + 2 * PAD, th + LABEL_H + 2 * PAD
-    gif_frames = []
-    for st, fi in seq:
-        g = Image.new("RGB", (gw, gh), BG)
-        gd = ImageDraw.Draw(g)
-        gd.text((PAD, PAD), f"{st} {fi + 1}/{nf}", fill=(180, 170, 210), font=f)
-        g.paste(tile(pal, frames[st][fi]), (PAD, PAD + LABEL_H))
-        gif_frames.append(g.convert("P", palette=Image.Palette.ADAPTIVE, colors=256))
-    gif_frames[0].save(os.path.join(outdir, "petsy-demo.gif"),
-                      save_all=True, append_images=gif_frames[1:],
-                      duration=fps_ms, loop=0)
-    print("gif:", os.path.join(outdir, "petsy-demo.gif"))
+                sheet.paste(tile(palettes[skin], frames[st][fi]),
+                           (PAD + fi * (tw + PAD), y0 + LABEL_H))
+        out_png = os.path.join(outdir, f"petsy-frames-{skin}.png")
+        sheet.save(out_png)
+        print("sheet:", out_png, sheet.size)
+
+        # gif: cycle all states, 2 loops each
+        fps_ms = 125
+        gif_frames = []
+        for st in states:
+            for _rep in range(2):
+                for fi in range(nf):
+                    g = Image.new("RGB", (tw + 2 * PAD, th + LABEL_H + 2 * PAD), BG)
+                    gd = ImageDraw.Draw(g)
+                    gd.text((PAD, PAD), f"{skin} · {st} {fi + 1}/{nf}",
+                          fill=(180, 170, 210), font=f)
+                    g.paste(tile(palettes[skin], frames[st][fi]),
+                          (PAD, PAD + LABEL_H))
+                    gif_frames.append(g.convert("P", palette=Image.Palette.ADAPTIVE,
+                                               colors=256))
+        out_gif = os.path.join(outdir, f"petsy-demo-{skin}.gif")
+        gif_frames[0].save(out_gif, save_all=True,
+                           append_images=gif_frames[1:],
+                           duration=fps_ms, loop=0)
+        print("gif:", out_gif)
 
 
 if __name__ == "__main__":

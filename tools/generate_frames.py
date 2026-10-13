@@ -1,32 +1,57 @@
 #!/usr/bin/env python3
 """Petsy sprite generator — deterministic, stdlib-only (Pillow only used by preview).
 
-Writes src/avatar/frames.ts: palette-indexed 24x30 frames, 8 frames per state.
-Design: soot-sprite blob with animated fur, gradient shading, glossy eyes,
-per-state props (bulb, magnifier, book, pencil) and particle systems.
-
-Run:  python3 tools/generate_frames.py
+Two skins: "cat" (orange tabby) and "claws" (classic space invader).
+Writes src/avatar/frames.ts: palette-indexed frames (OUT_W x OUT_H), 8 per state.
 """
 import math
 import random
 
-W, H = 24, 30
+W, H = 24, 30          # native design resolution
 NF = 8  # frames per state
 
+# Output scale: rasterize directly at OUT_W x OUT_H so the terminal
+# footprint stays compact (18 cols x 11 rows via half-blocks).
+OUT_SCALE = 0.75
+OUT_W = int(W * OUT_SCALE)   # 18
+OUT_H = int(H * OUT_SCALE)   # 22
+
+
+class Canvas:
+    """Design-space canvas (24x30) rasterized directly to OUT_W x OUT_H."""
+
+    def __init__(self):
+        self.px = [["."] * OUT_W for _ in range(OUT_H)]
+
+    def put(self, x, y, ch):
+        X = int(round(x * OUT_W / W))
+        Y = int(round(y * OUT_H / H))
+        if 0 <= X < OUT_W and 0 <= Y < OUT_H:
+            self.px[Y][X] = ch
+
+    def get(self, x, y):
+        X = int(round(x * OUT_W / W))
+        Y = int(round(y * OUT_H / H))
+        if 0 <= X < OUT_W and 0 <= Y < OUT_H:
+            return self.px[Y][X]
+        return "."
+
+    def put_px(self, X, Y, ch):
+        """Write directly in output pixel coordinates."""
+        if 0 <= X < OUT_W and 0 <= Y < OUT_H:
+            self.px[Y][X] = ch
+
+    def rows(self):
+        return ["".join(r) for r in self.px]
+
+
 # ---------------------------------------------------------------- palette ---
-PALETTE = {
+# Two skins: "cat" (orange tabby) and "claws" (classic space invader).
+# Shared prop colors + per-skin body colors.
+
+SHARED = {
     ".": None,
-    "o": "#463258",  # outline
-    "1": "#F6EBFF",  # body highlight
-    "2": "#E4CDFF",  # body light
-    "3": "#C8B6FF",  # body base (brand pastel purple)
-    "4": "#AE8FE8",  # body shade
-    "5": "#9271CC",  # body deep
-    "6": "#7A57B0",  # body deepest
-    "e": "#241F33",  # eye dark
-    "w": "#FFFFFF",  # white gloss
-    "g": "#9E96B8",  # eye gloss gray
-    "s": "#F5A3C0",  # blush / pink
+    "w": "#FFFFFF",  # white gloss / thought cloud
     "y": "#FFD98A",  # star / bulb / pencil
     "Y": "#E8A94E",  # yellow shade
     "L": "#FFF3C4",  # bulb glow
@@ -38,69 +63,61 @@ PALETTE = {
     "N": "#D8C9A8",  # paper shade
     "k": "#55506B",  # dark handle / ink
     "a": "#7EE2A8",  # mint confetti
-    "h": "#E9E2FF",  # sparkle lavender
+    "h": "#FFE9C8",  # sparkle warm
 }
+
+SKIN_PALETTES = {
+    "cat": {
+        "o": "#2A1808",  # outline (dark brown-near-black)
+        "1": "#F8E0B0",  # cream highlight (muzzle/chest/paws)
+        "2": "#F2B85C",  # fur light
+        "3": "#E89B3C",  # fur base (orange tabby)
+        "4": "#D07F28",  # fur shade
+        "5": "#C46A1E",  # tabby stripes / deep shade
+        "6": "#A8551A",  # fur deepest
+        "e": "#14100C",  # eye (near-black)
+        "g": "#8A7A66",  # soft shade detail
+        "s": "#E890A0",  # pink: nose / inner ears / blush
+    },
+    "claws": {
+        "o": "#3A1410",  # outline
+        "1": "#FFC9B0",  # highlight
+        "2": "#F08A6E",  # light
+        "3": "#EF5D48",  # body (extracted from reference)
+        "4": "#C84E36",  # shade
+        "5": "#A83E2A",  # deep shade
+        "6": "#8A3220",  # deepest
+        "e": "#1A0E0C",  # eye
+        "g": "#8A7A66",  # soft shade detail
+        "s": "#E890A0",  # pink accent
+    },
+}
+
+SKINS = ("cat", "claws")
+ACTIVE_SKIN = "cat"
+
+
+def palette():
+    pal = dict(SHARED)
+    pal.update(SKIN_PALETTES[ACTIVE_SKIN])
+    return pal
+
+
+# (PALETTE kept for the legacy single-map consumers)
+PALETTE = palette()
 
 STATES = ["idle", "thinking", "idea", "writing", "researching",
           "reading", "complete", "confused", "error"]
 
-# ------------------------------------------------------------- primitives ---
-
-class Canvas:
-    def __init__(self):
-        self.px = [["."] * W for _ in range(H)]
-
-    def put(self, x, y, ch):
-        x, y = int(round(x)), int(round(y))
-        if 0 <= x < W and 0 <= y < H:
-            self.px[y][x] = ch
-
-    def get(self, x, y):
-        x, y = int(round(x)), int(round(y))
-        if 0 <= x < W and 0 <= y < H:
-            return self.px[y][x]
-        return "."
-
-    def rows(self):
-        return ["".join(r) for r in self.px]
-
-
-def ellipse_fill(c, cx, cy, rx, ry, test):
-    """Fill integer pixels whose center passes test(dx,dy)."""
-    for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
-        for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
-            dx, dy = x - cx, y - cy
-            if test(dx, dy):
-                c.put(x, y, test.ch)
-
-
-# ------------------------------------------------------------- fur noise ----
-FUR_SEED = 7
-_r = random.Random(FUR_SEED)
-FUR_BASE = [_r.uniform(-1.0, 1.0) for _ in range(48)]
-FUR_SPIKE = [1 if _r.random() < 0.22 else 0 for _ in range(48)]
-
-
-def fur_radius(theta, frame, amp=1.0):
-    """Silhouette radius multiplier at angle theta for this frame."""
-    b = int(((theta + math.pi) / (2 * math.pi)) * 48) % 48
-    drift = frame  # fur shimmer drifts around the body
-    i0 = (b + drift) % 48
-    i1 = (b + drift + 1) % 48
-    frac = ((b + drift) % 1)
-    n = FUR_BASE[i0] * (1 - frac) + FUR_BASE[i1] * frac
-    spike = max(FUR_SPIKE[i0], FUR_SPIKE[i1])
-    return 1.0 + amp * (0.055 * n + 0.16 * spike)
-
-
 # ----------------------------------------------------------------- body -----
+# Character layers per skin. Cat = rounded tabby drawn with primitives;
+# claws = classic space-invader stamped from bitmaps.
 
 def shade_char(dx, dy, rx, ry):
     """Interior shading: light from top-left."""
-    # normalized position, light vector (-0.62, -0.70)
     lx, ly = dx / rx, dy / ry
-    l = lx * -0.62 + ly * -0.70          # ~ +1 top-left, -1 bottom-right
-    d = math.sqrt(lx * lx + ly * ly)      # 0 center .. 1 edge
+    l = lx * -0.62 + ly * -0.70
+    d = math.sqrt(lx * lx + ly * ly)
     v = 0.5 + 0.55 * l - 0.35 * d
     if v > 0.82:
         return "1"
@@ -115,122 +132,276 @@ def shade_char(dx, dy, rx, ry):
     return "6"
 
 
-def draw_body(c, cx, cy, rx, ry, frame, squash=0.0):
-    """Furry blob with dark outline. squash>0 widens & flattens."""
-    ry2 = ry * (1.0 - squash)
-    rx2 = rx * (1.0 + squash * 0.6)
-    for y in range(0, H):
-        for x in range(0, W):
-            dx, dy = x - cx, y - cy
-            if abs(dx) > rx2 + 3 or abs(dy) > ry2 + 3:
-                continue
-            theta = math.atan2(dy / ry2, dx / rx2)
-            fr = fur_radius(theta, frame)
-            d = math.sqrt((dx / rx2) ** 2 + (dy / ry2) ** 2)
-            if d <= fr - 0.16:
-                c.put(x, y, shade_char(dx, dy, rx2, ry2))
-            elif d <= fr + 0.12:
+def _blob(c, cx, cy, rx, ry, flare=0.0):
+    """Filled ellipse with outline; flare widens the lower half (haunches)."""
+    for y in range(int(cy - ry) - 2, int(cy + ry) + 3):
+        for x in range(int(cx - rx) - 3, int(cx + rx) + 3):
+            rxx = rx * (1.0 + flare * max(0.0, (y - cy) / ry))
+            dd = ((x - cx) / rxx) ** 2 + ((y - cy) / ry) ** 2
+            if dd <= 1.0:
+                c.put(x, y, shade_char(x - cx, y - cy, rxx, ry))
+            elif dd <= 1.35 and c.get(x, y) == ".":
                 c.put(x, y, "o")
 
 
-def draw_feet(c, cx, cy, frame, dy=0.0):
-    # feet touch the body bottom (no background gap): body bottom ~ cy+8
-    for sx in (-3.4, 3.4):
-        fx, fy = cx + sx, cy + 9.4 + dy
-        for yy in range(int(fy - 1.4), int(fy + 1.6)):
-            for xx in range(int(fx - 1.8), int(fx + 1.9)):
-                ddx, ddy = (xx - fx) / 1.9, (yy - fy) / 1.45
+def _tri(c, apex_x, apex_y, half_base, height):
+    """Pointed ear triangle with outline, apex up."""
+    for i in range(height + 1):
+        y = apex_y + i
+        hw = max(0, int(round(half_base * i / max(1, height))))
+        for x in range(apex_x - hw, apex_x + hw + 1):
+            edge = abs(x - apex_x) >= hw or i == height
+            c.put(x, y, "o" if edge else "3")
+
+
+def draw_ears(c, cx, head_top, twitch=False):
+    lh = 3 if twitch else 4
+    _tri(c, int(cx - 4.5), int(head_top - 3), 2.6, 4)
+    _tri(c, int(cx + 4.5), int(head_top - lh), 2.6, lh)
+    c.put(cx - 4.5, int(head_top - 1), "s")
+    c.put(cx - 5, int(head_top), "s")
+    if not twitch:
+        c.put(cx + 4.5, int(head_top - 1), "s")
+        c.put(cx + 5, int(head_top), "s")
+
+
+def draw_tail(c, cx, cy, frame):
+    sway = round(math.sin(frame * 2 * math.pi / NF))
+    pts = [(cx + 7, cy + 5), (cx + 8, cy + 4), (cx + 9, cy + 2),
+           (cx + 9, cy), (cx + 9 + sway, cy - 2), (cx + 8 + sway, cy - 3)]
+    body = set()
+    for i, (x, y) in enumerate(pts):
+        ch = "5" if (i // 2) % 2 == 0 else "3"
+        for dx in (0, 1):
+            body.add((x + dx, y))
+            body.add((x + dx, y + 1))
+            c.put(x + dx, y, ch)
+            c.put(x + dx, y + 1, "4" if ch == "3" else ch)
+    for (x, y) in list(body):
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            if (x + dx, y + dy) not in body and c.get(x + dx, y + dy) == ".":
+                c.put(x + dx, y + dy, "o")
+
+
+def draw_tabby(c, cx, head_cy):
+    for dx, ln in ((-3, 2), (-1, 3), (1, 3), (3, 2)):
+        for i in range(ln):
+            c.put(cx + dx, head_cy - 4 + i, "5")
+
+
+def _cat_body(c, cx, cy, rx, ry, frame, squash=0.0, twitch=False):
+    ry2 = ry * (1.0 - squash)
+    rx2 = rx * (1.0 + squash * 0.6)
+    head_cy = cy - 3.0
+    _blob(c, cx, head_cy, rx2 * 0.86, ry2 * 0.68)
+    _blob(c, cx, cy + 3.2, rx2 * 0.88, ry2 * 0.62, flare=0.18)
+    draw_ears(c, cx, head_cy - ry2 * 0.68 + 1, twitch=twitch)
+    draw_tail(c, cx, cy, frame)
+    draw_tabby(c, cx, head_cy)
+    for yy in range(int(head_cy + 1), int(head_cy + 4)):
+        for xx in range(int(cx - 2), int(cx + 3)):
+            dd = ((xx - cx) / 2.6) ** 2 + ((yy - (head_cy + 2)) / 1.8) ** 2
+            if dd <= 1.0 and c.get(xx, yy) in "1234":
+                c.put(xx, yy, "1")
+    for yy in range(int(cy + 1), int(cy + 5)):
+        for xx in range(int(cx - 2), int(cx + 3)):
+            dd = ((xx - cx) / 2.4) ** 2 + ((yy - (cy + 3)) / 2.6) ** 2
+            if dd <= 1.0 and c.get(xx, yy) in "2345":
+                c.put(xx, yy, "1")
+
+
+# ---- claws: classic space invader, bitmap-stamped, 16x9 output px --------
+
+# Extracted 1:1 from the reference image: classic crab invader, 12x8 grid.
+# Head/body are 8 cells wide (cols 2-9); arms span the full 12.
+INV_CORE = [
+    "..XXXXXXXX..",
+    "..XeXXXXeX..",
+    "XXXXXXXXXXXX",
+    "XXXXXXXXXXXX",
+    "..XXXXXXXX..",
+    "..XXXXXXXX..",
+]
+# legs are static (reference is a single pose); the bob provides the motion
+INV_LEGS = [
+    "..X.X..X.X..",
+    "..X.X..X.X..",
+]
+
+
+def _stamp(c, ox, oy, row, ch):
+    for rx, px in enumerate(row):
+        if px == "X":
+            c.put_px(ox + rx, oy, ch)
+        elif px == "e":
+            c.put_px(ox + rx, oy, "e")
+
+
+def _claws_origin(cx, cy):
+    # bitmap is 12 wide x 8 tall; center it in the OUT_W x OUT_H canvas
+    return int(round(cx * OUT_W / W)) - 6, int(round(cy * OUT_H / H)) - 4
+
+
+LAST_ORIGIN = (0, 0)
+
+
+def _claws_body(c, cx, cy, frame):
+    global LAST_ORIGIN
+    ox, oy = _claws_origin(cx, cy)
+    LAST_ORIGIN = (ox, oy)
+    for i, row in enumerate(INV_CORE):
+        for rx, px in enumerate(row):
+            if px == "X":
+                c.put_px(ox + rx, oy + i, "3")
+            elif px == "e":
+                c.put_px(ox + rx, oy + i, "e")
+    for i, row in enumerate(INV_LEGS):
+        for rx, px in enumerate(row):
+            if px == "X":
+                c.put_px(ox + rx, oy + 6 + i, "3")
+
+
+def draw_body(c, cx, cy, rx, ry, frame, squash=0.0, twitch=False):
+    if ACTIVE_SKIN == "claws":
+        _claws_body(c, cx, cy, frame)
+    else:
+        _cat_body(c, cx, cy, rx, ry, frame, squash=squash, twitch=twitch)
+
+
+def _cat_feet(c, cx, cy, frame, dy=0.0):
+    for sx in (-3.2, 3.2):
+        fx, fy = cx + sx, cy + 8.6 + dy
+        for yy in range(int(fy - 1.2), int(fy + 1.4)):
+            for xx in range(int(fx - 2.0), int(fx + 2.1)):
+                ddx, ddy = (xx - fx) / 2.0, (yy - fy) / 1.3
                 dd = ddx * ddx + ddy * ddy
                 if dd <= 1.0:
-                    c.put(xx, yy, "5")
-                elif dd <= 1.75 and c.get(xx, yy) == ".":
+                    c.put(xx, yy, "1")
+                elif dd <= 1.8 and c.get(xx, yy) == ".":
                     c.put(xx, yy, "o")
+        c.put(int(fx) - 1, int(fy), "o")
+        c.put(int(fx) + 1, int(fy), "o")
 
 
-def draw_arms(c, cx, cy, frame, raise_amt=0.0):
-    """Little nub arms at the sides; raise_amt lifts them up."""
+def draw_feet(c, cx, cy, frame, dy=0.0):
+    if ACTIVE_SKIN != "claws":
+        _cat_feet(c, cx, cy, frame, dy=dy)
+
+
+def _cat_arms(c, cx, cy, frame, raise_amt=0.0):
     for sx in (-1, 1):
-        ax = cx + sx * 8.6
-        ay = cy + 2.6 - raise_amt * 3.2 + 0.25 * math.sin(frame * math.pi / 4 + sx)
+        ax = cx + sx * 7.6
+        ay = cy + 2.2 - raise_amt * 3.2 + 0.25 * math.sin(frame * math.pi / 4 + sx)
         for yy in range(int(ay - 1.2), int(ay + 1.4)):
             for xx in range(int(ax - 1.4), int(ax + 1.5)):
                 ddx, ddy = (xx - ax) / 1.5, (yy - ay) / 1.3
                 dd = ddx * ddx + ddy * ddy
                 if dd <= 1.0:
                     c.put(xx, yy, "4")
-                elif dd <= 1.9:
+                elif dd <= 1.9 and c.get(xx, yy) == ".":
                     c.put(xx, yy, "o")
+
+
+def draw_arms(c, cx, cy, frame, raise_amt=0.0):
+    if ACTIVE_SKIN != "claws":
+        _cat_arms(c, cx, cy, frame, raise_amt=raise_amt)
 
 
 # ----------------------------------------------------------------- eyes -----
 
-def draw_eye(c, cx, cy, kind, pdx=0.0, pdy=0.0):
-    """kind: open | closed | happy | sad | x | wide | half"""
-    rx, ry = 2.5, 3.0
-    if kind == "open" or kind == "wide" or kind == "half":
-        ry_e = ry if kind != "half" else 1.9
-        rx_e = rx if kind != "wide" else rx + 0.5
-        for yy in range(int(cy - ry_e) - 1, int(cy + ry_e) + 2):
-            for xx in range(int(cx - rx_e) - 1, int(cx + rx_e) + 2):
-                dx, dy = (xx - cx) / rx_e, (yy - cy) / ry_e
-                dd = dx * dx + dy * dy
-                if dd <= 1.0:
-                    c.put(xx, yy, "e")
-        # gloss: big highlight top-left, small bottom-right
-        hx, hy = cx - 1.0 + pdx, cy - 1.3 + pdy
-        c.put(hx, hy, "w")
-        c.put(hx + 1, hy, "w")
-        c.put(hx, hy + 1, "w")
-        c.put(cx + 1.2 - pdx * 0.5, cy + 1.5 - pdy * 0.4, "g")
+def _cat_eye(c, cx, cy, kind, pdx=0.0, pdy=0.0):
+    if kind in ("open", "wide", "half"):
+        h = 1 if kind == "half" else (3 if kind == "wide" else 2)
+        w = 3 if kind == "wide" else 2
+        x0 = int(round(cx - w / 2 + pdx * 0.6))
+        y0 = int(round(cy - h / 2 + pdy * 0.6))
+        for yy in range(y0, y0 + h):
+            for xx in range(x0, x0 + w):
+                c.put(xx, yy, "e")
+        c.put(x0, y0, "w")
     elif kind == "closed":
-        for i, xx in enumerate(range(int(cx - 2.4), int(cx + 2.5))):
-            yy = cy + (0 if i in (0, 4) else (1 if i in (1, 3) else 1))
-            c.put(xx, yy, "e")
-        c.put(cx - 2.4, cy - 1, "e")
-        c.put(cx + 2.4, cy - 1, "e")
-    elif kind == "happy":  # ^ arc
-        pts = [(-2.4, 0.6), (-1.6, -0.4), (-0.8, -1.2), (0, -1.5),
-               (0.8, -1.2), (1.6, -0.4), (2.4, 0.6)]
-        for dx, dy in pts:
+        x0 = int(round(cx - 1.5))
+        for xx in range(x0, x0 + 3):
+            c.put(xx, int(round(cy)), "e")
+    elif kind == "happy":
+        for dx, dy in ((-1.5, 0.5), (-0.5, -0.5), (0.5, -0.5), (1.5, 0.5)):
             c.put(cx + dx, cy + dy, "e")
     elif kind == "sad":
-        pts = [(-2.2, -0.8), (-1.4, 0.2), (0, 0.8), (1.4, 0.2), (2.2, -0.8)]
-        for dx, dy in pts:
+        for dx, dy in ((-1.5, -0.5), (-0.5, 0.5), (0.5, 0.5), (1.5, -0.5)):
             c.put(cx + dx, cy + dy, "e")
     elif kind == "x":
-        for d in range(-2, 3):
+        for d in (-1, 0, 1):
             c.put(cx + d, cy + d, "r")
             c.put(cx + d, cy - d, "r")
 
 
+def _claws_eye(c, cx=None, cy=None, kind="open"):
+    """Repaint the invader's 1px eye cells at the body's stamped origin."""
+    ox, oy = LAST_ORIGIN
+    for ex in (ox + 3, ox + 8):
+        ey = oy + 1
+        if kind in ("open", "wide"):
+            c.put_px(ex, ey, "e")
+            if kind == "wide":
+                c.put_px(ex - 1, ey, "e")
+                c.put_px(ex + 1, ey, "e")
+                c.put_px(ex, ey - 1, "e")
+                c.put_px(ex, ey + 1, "e")
+        elif kind == "half":
+            c.put_px(ex, ey, "e")          # 1px eye: keep at reference slot
+        elif kind == "closed":
+            c.put_px(ex, ey, "3")          # blink: eye vanishes into fur
+        elif kind == "happy":
+            c.put_px(ex, ey, "3")
+            c.put_px(ex - 1, ey, "e")
+            c.put_px(ex + 1, ey, "e")      # flat ^^ squint
+        elif kind == "sad":
+            c.put_px(ex, ey, "3")
+            c.put_px(ex, ey + 1, "e")
+        elif kind == "x":
+            c.put_px(ex, ey, "r")
+
+
+def draw_eye(c, cx, cy, kind, pdx=0.0, pdy=0.0):
+    if ACTIVE_SKIN == "claws":
+        _claws_eye(c, cx, cy, kind)
+    else:
+        _cat_eye(c, cx, cy, kind, pdx=pdx, pdy=pdy)
+
+
 def draw_face(c, cx, cy, eyes, pdx=0.0, pdy=0.0, mouth="smile", blush=True):
-    for sx, ex in ((-3.6, eyes[0]), (3.6, eyes[1])):
-        draw_eye(c, cx + sx, cy, ex, pdx, pdy)
+    if ACTIVE_SKIN == "claws":
+        # invader face = eyes only; props carry the state
+        for ex in eyes:
+            _claws_eye(c, cx, cy, ex)
+        return
+    for sx, ex in ((-3.4, eyes[0]), (3.4, eyes[1])):
+        _cat_eye(c, cx + sx, cy, ex, pdx, pdy)
+    ny = cy + 2.2
+    c.put(cx, int(ny), "s")
+    c.put(cx - 1, int(ny + 1), "s")
+    c.put(cx, int(ny + 1), "s")
+    c.put(cx + 1, int(ny + 1), "s")
     if blush:
-        c.put(cx - 6.2, cy + 2.6, "s")
-        c.put(cx - 5.2, cy + 2.6, "s")
-        c.put(cx + 5.2, cy + 2.6, "s")
-        c.put(cx + 6.2, cy + 2.6, "s")
-    mx, my = cx, cy + 4.6
+        c.put(cx - 5.6, int(ny), "s")
+        c.put(cx + 5.6, int(ny), "s")
+    if mouth == "none":
+        return
+    mx, my = cx, ny + 2.0
     if mouth == "smile":
-        c.put(mx - 1, my, "e")
-        c.put(mx, my + 1, "e")
-        c.put(mx + 1, my, "e")
+        for dx, dy in ((-2, -0.5), (-1, 0.5), (0, -0.5), (1, 0.5), (2, -0.5)):
+            c.put(mx + dx, my + dy, "o")
     elif mouth == "open":
-        for xx in range(int(mx - 1.5), int(mx + 2.5)):
-            c.put(xx, my, "e")
-            c.put(xx, my + 1, "e")
-        c.put(mx - 2, my, "e")
-        c.put(mx + 2, my, "e")
-        c.put(mx, my + 2, "e")
-        c.put(mx - 1, my + 2, "e")
-        c.put(mx + 1, my + 2, "e")
+        for xx in range(int(mx - 1), int(mx + 2)):
+            c.put(xx, int(my), "o")
+            c.put(xx, int(my + 1), "R")
+        c.put(int(mx), int(my + 2), "R")
     elif mouth == "o":
-        for dx, dy in ((-1, 0), (1, 0), (0, 1), (-1, 1), (1, 1), (0, 2)):
-            c.put(mx + dx, my + dy, "e")
+        for dx, dy in ((-1, 0), (1, 0), (0, 1)):
+            c.put(mx + dx, int(my + dy), "o")
     elif mouth == "wave":
         for i, dx in enumerate(range(-2, 3)):
-            c.put(mx + dx, my + (0 if i % 2 == 0 else 1), "e")
+            c.put(mx + dx, int(my + (0 if i % 2 == 0 else 1)), "o")
 
 
 # ----------------------------------------------------------------- bits -----
@@ -283,18 +454,11 @@ def frame_idle(f):
     cx, cy = 12, 16.5 + BOB[f]
     blink = f == NF - 1
     sq = 0.05 if BOB[f] == 1 else (-0.04 if BOB[f] == -1 else 0)
-    # twinkling star above head (min size 2 so it always reads as a star)
-    star_size = [2, 2, 3, 3, 2, 2, 3, 2][f]
-    draw_star(c, 12, 3.5 + BOB[f] * 0.5, star_size)
-    draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq)
+    draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq, twitch=(f in (2, 3)))
     draw_feet(c, cx, cy, f, dy=BOB[f])
     draw_arms(c, cx, cy, f)
     eye = "closed" if blink else "open"
-    draw_face(c, cx, cy - 1.2, (eye, eye), mouth="smile" if not blink else "none")
-    # ambient sparkles
-    if f % 2 == 0:
-        draw_sparkle(c, 3 + (f % 3), 8 + (f % 2), "h")
-        draw_sparkle(c, 20, 12 + (f % 3), "h")
+    draw_face(c, cx, cy - 3.0, (eye, eye), mouth="smile" if not blink else "none")
     return c
 
 
@@ -329,7 +493,7 @@ def frame_thinking(f):
     draw_arms(c, cx, cy, f)
     # eyes look up at the cloud, darting
     pdx = [-0.4, -0.4, 0.4, 0.4, 0, 0, -0.4, 0.4][f]
-    draw_face(c, cx, cy - 1.2, ("open", "open"), pdx=pdx, pdy=-0.9, mouth="o")
+    draw_face(c, cx, cy - 3.0, ("open", "open"), pdx=pdx, pdy=-0.9, mouth="o")
     # thought trail rising from the head into the cloud
     trail = [(15.2, 8.6, 0.6), (16.4, 7.4, 0.9)]
     for i, (bx, by, br) in enumerate(trail):
@@ -383,7 +547,7 @@ def frame_idea(f):
     draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f, dy=BOB[f])
     draw_arms(c, cx, cy, f, raise_amt=1.0 if f % 4 < 2 else 0.4)
-    draw_face(c, cx, cy - 1.2, ("happy", "happy"), mouth="open", blush=True)
+    draw_face(c, cx, cy - 3.0, ("happy", "happy"), mouth="open", blush=True)
     if f in (2, 3, 4, 5):
         draw_sparkle(c, 4, 6, "y")
         draw_sparkle(c, 20, 7, "y")
@@ -411,20 +575,32 @@ def frame_writing(f):
             c.put(xx, yy, "N")
     # pencil: FIXED 5px shaft + tip, glides along the active line, stays on-canvas
     active_y = py0 + max(0, done_lines - 1) if done_lines else py0 + 1
-    tipx = min(px0 + 1 + active_len, px1 - 5)
-    tipy = active_y
-    c.put(tipx, tipy, "k")                     # graphite tip
-    for d in range(1, 4):                       # wood shaft
-        c.put(tipx + d, tipy - d, "y")
-        c.put(tipx + d + 1, tipy - d, "y")
-    c.put(tipx + 4, tipy - 3, "Y")            # ferrule
-    c.put(tipx + 5, tipy - 4, "s")            # eraser
-    c.put(tipx + 4, tipy - 4, "s")
-    # ink dot on the fresh line
-    if f % 2 == 0:
-        c.put(tipx - 1, tipy, "k")
+    if ACTIVE_SKIN == "claws":
+        # compact invader: vertical pencil just right of the paper
+        tipx, tipy = px1 + 2, py0 + 1
+        c.put(tipx, tipy, "k")
+        for d in (1, 2, 3):
+            c.put(tipx, tipy - d, "y")
+            c.put(tipx + 1, tipy - d, "y")
+        c.put(tipx, tipy - 4, "Y")
+        c.put(tipx + 1, tipy - 4, "Y")
+        c.put(tipx, tipy - 5, "s")
+        c.put(tipx + 1, tipy - 5, "s")
+    else:
+        tipx = min(px0 + 1 + active_len, px1 - 5)
+        tipy = active_y
+        c.put(tipx, tipy, "k")                 # graphite tip
+        for d in range(1, 4):                   # wood shaft
+            c.put(tipx + d, tipy - d, "y")
+            c.put(tipx + d + 1, tipy - d, "y")
+        c.put(tipx + 4, tipy - 3, "Y")        # ferrule
+        c.put(tipx + 5, tipy - 4, "s")        # eraser
+        c.put(tipx + 4, tipy - 4, "s")
+        # ink dot on the fresh line
+        if f % 2 == 0:
+            c.put(tipx - 1, tipy, "k")
     # eyes look down at page
-    draw_face(c, cx, cy - 1.4, ("half", "half"), pdy=0.8, mouth="smile")
+    draw_face(c, cx, cy - 3.2, ("half", "half"), pdy=0.8, mouth="smile")
     return c
 
 
@@ -435,14 +611,22 @@ def frame_researching(f):
     draw_feet(c, cx, cy, f, dy=BOB[f])
     # face first, so the magnifier overlaps it with the eye visible through glass
     pdx = 0.4 if f < 4 else -0.4
-    draw_face(c, cx, cy - 1.2, ("open", "open"), pdx=pdx, pdy=0.2, mouth="smile")
+    draw_face(c, cx, cy - 3.0, ("open", "open"), pdx=pdx, pdy=0.2, mouth="smile")
     # magnifier sweeps across the face: big lens, thick rim, eye visible inside
-    gx = [8.4, 10, 12, 14, 15.6, 14, 12, 10][f]
-    gy = cy - 1.2
+    if ACTIVE_SKIN == "claws":
+        # invader: keep the two-eye read intact — lens hovers above-right
+        gx = cx + 4.0 + [0, 0.6, 1.0, 0.6, 0, -0.6, -1.0, -0.6][f]
+        gy = cy - 8.0
+    else:
+        gx = [8.4, 10, 12, 14, 15.6, 14, 12, 10][f]
+        gy = cy - 1.2
     r = 3.9
     # handle first (under the rim): always lower-left so the grip never flips
     hx0 = gx - 2.6
     hs = -1
+    if ACTIVE_SKIN == "claws":
+        hx0 = gx + 2.6
+        hs = 1
     for d in range(1, 4):
         c.put(hx0 + d * hs, gy + 2.6 + d, "k")
         c.put(hx0 + d * hs + hs, gy + 2.6 + d, "k")
@@ -504,10 +688,11 @@ def frame_reading(f):
             if (xx + yy + lift) % 2 == 0:
                 c.put(xx, yy, "N")
     # eyes peek over the top edge, looking down
-    draw_eye(c, cx - 3.6, cy - 1.6, "half", pdy=1.0)
-    draw_eye(c, cx + 3.6, cy - 1.6, "half", pdy=1.0)
-    c.put(cx - 6.2, cy + 1.0, "s")
-    c.put(cx + 6.2, cy + 1.0, "s")
+    draw_eye(c, cx - 3.4, cy - 3.4, "half", pdy=1.0)
+    draw_eye(c, cx + 3.4, cy - 3.4, "half", pdy=1.0)
+    if ACTIVE_SKIN != "claws":
+        c.put(cx - 5.6, cy - 1.2, "s")
+        c.put(cx + 5.6, cy - 1.2, "s")
     # floating letters rising
     for i, (lx, phase) in enumerate(((2, 0), (21, 2))):
         ly = 18 - ((f + phase) % 4) * 2
@@ -534,10 +719,10 @@ def frame_complete(f):
         c.put(px + sway, py + 1, pch)          # 2px cluster, reads as confetti
         if spd == 2:
             c.put(px + sway + 1, py, pch)
-    draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq)
+    draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq, twitch=(f in (2, 3)))
     draw_feet(c, cx, cy, f, dy=bounce * 0.6)
     draw_arms(c, cx, cy, f, raise_amt=1.2)
-    draw_face(c, cx, cy - 1.2, ("happy", "happy"), mouth="open", blush=True)
+    draw_face(c, cx, cy - 3.0, ("happy", "happy"), mouth="open", blush=True)
     # big sparkles beside head
     if f % 2 == 0:
         draw_star(c, 2, 9, 1, "y")
@@ -549,21 +734,8 @@ def frame_confused(f):
     c = Canvas()
     tilt = [0, 0, 1, 1, 0, -1, -1, 0][f]
     cx, cy = 12 + tilt * 0.6, 16.5 + BOB[f]
-    # sheared body: rows above center shift with tilt
-    for y in range(0, H):
-        for x in range(0, W):
-            dx, dy = x - cx, y - cy
-            if abs(dx) > 11 or abs(dy) > 11:
-                continue
-            shear = tilt * (cy - y) * 0.10
-            dxs = dx - shear
-            theta = math.atan2(dy / 8.0, dxs / 8.4)
-            fr = fur_radius(theta, f)
-            d = math.sqrt((dxs / 8.4) ** 2 + (dy / 8.0) ** 2)
-            if d <= fr - 0.16:
-                c.put(x, y, shade_char(dxs, dy, 8.4, 8.0))
-            elif d <= fr + 0.12:
-                c.put(x, y, "o")
+    # tilt the whole sprite slightly (props stay upright)
+    draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f, dy=BOB[f])
     draw_arms(c, cx, cy, f)
     # pupils dart side to side
@@ -590,9 +762,13 @@ def frame_error(f):
     draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f)
     draw_arms(c, cx, cy, f)
-    draw_face(c, cx, cy - 1.2, ("x", "x"), mouth="sad", blush=False)
+    draw_face(c, cx, cy - 3.0, ("x", "x"), mouth="sad", blush=False)
     # glitch static: fixed slots that shimmer (never fully vanish)
-    slots = [(3, 8), (20, 7), (2, 18), (21, 16), (5, 24), (18, 25), (1, 12), (22, 11)]
+    if ACTIVE_SKIN == "claws":
+        # invader: particles only around the silhouette, never on it
+        slots = [(1, 6), (16, 5), (0, 14), (17, 13), (2, 22), (15, 23)]
+    else:
+        slots = [(3, 8), (20, 7), (2, 18), (21, 16), (5, 24), (18, 25), (1, 12), (22, 11)]
     for i, (sx, sy) in enumerate(slots):
         if (f + i) % 3 == 0:
             continue  # some slots blink off, at least 5 stay lit
@@ -622,6 +798,16 @@ FRAME_FUNCS = {
 
 # ---------------------------------------------------------------- output ----
 
+def build_skin(skin):
+    global ACTIVE_SKIN
+    ACTIVE_SKIN = skin
+    out = {}
+    for state in STATES:
+        out[state] = [FRAME_FUNCS[state](f).rows() for f in range(NF)]
+    ACTIVE_SKIN = "cat"
+    return out
+
+
 def emit_ts():
     lines = []
     lines.append('import type { AgentStatus } from "./status.js"')
@@ -629,47 +815,64 @@ def emit_ts():
     lines.append("// Generated by tools/generate_frames.py — do not hand-edit the frame data.")
     lines.append("// Regenerate with: python3 tools/generate_frames.py")
     lines.append("")
-    lines.append("export const PASTEL_PURPLE = \"#C8B6FF\"")
+    lines.append('export type Skin = "cat" | "claws"')
+    lines.append('export const DEFAULT_SKIN: Skin = "cat"')
+    lines.append("")
+    lines.append("export const CAT_ORANGE = \"#E89B3C\"")
     lines.append("export const ERROR_RED = \"#E06C75\"")
     lines.append("")
-    lines.append("// Palette-indexed truecolor frames: 24x30 native pixels, 8 frames/state.")
-    lines.append("// Each frame is 30 strings of 24 chars; each char indexes PALETTE.")
-    lines.append("export const PALETTE: Record<string, string> = {")
-    for ch, hexv in PALETTE.items():
-        if hexv is None:
-            continue
-        lines.append(f"  \"{ch}\": \"{hexv}\",")
+    lines.append("// Palette-indexed truecolor frames: %dx%d native pixels, 8 frames/state." % (OUT_W, OUT_H))
+    lines.append("// Each frame is %d strings of %d chars; each char indexes the skin palette." % (OUT_H, OUT_W))
+    lines.append("export const PALETTES: Record<Skin, Record<string, string>> = {")
+    for skin in SKINS:
+        pal = dict(SHARED)
+        pal.update(SKIN_PALETTES[skin])
+        lines.append("  %s: {" % skin)
+        for ch, hexv in pal.items():
+            if hexv is None:
+                continue
+            lines.append(f'    "{ch}": "{hexv}",')
+        lines.append("  },")
     lines.append("}")
     lines.append("")
-    lines.append("export const SPRITE_WIDTH = 24")
-    lines.append("export const SPRITE_HEIGHT = 30")
+    lines.append("export const SPRITE_WIDTH = %d" % OUT_W)
+    lines.append("export const SPRITE_HEIGHT = %d" % OUT_H)
     lines.append("export const FRAMES_PER_STATE = 8")
     lines.append("")
     lines.append("export type PixelCell = string | null")
     lines.append("export type PixelRow = PixelCell[]")
     lines.append("export type PixelFrame = PixelRow[]")
     lines.append("")
-    lines.append("export const FRAME_ROWS: Record<AgentStatus, string[][]> = {")
-    for state in STATES:
-        lines.append(f"  {state}: [")
-        for f in range(NF):
-            rows = FRAME_FUNCS[state](f).rows()
-            lines.append("    [")
-            for r in rows:
-                lines.append(f"      \"{r}\",")
+    lines.append("export const FRAME_ROWS: Record<Skin, Record<AgentStatus, string[][]>> = {")
+    for skin in SKINS:
+        data = build_skin(skin)
+        lines.append("  %s: {" % skin)
+        for state in STATES:
+            lines.append(f"    {state}: [")
+            for rows in data[state]:
+                lines.append("      [")
+                for r in rows:
+                    lines.append(f'        "{r}",')
+                lines.append("      ],")
             lines.append("    ],")
-        lines.append("  ],")
+        lines.append("  },")
     lines.append("}")
     lines.append("")
     lines.append("// Expand palette rows to truecolor pixel maps once at module load.")
-    lines.append("export const FRAMES: Record<AgentStatus, PixelFrame[]> = Object.fromEntries(")
-    lines.append("  Object.entries(FRAME_ROWS).map(([state, frames]) => [")
-    lines.append("    state,")
-    lines.append("    frames.map((rows) =>")
-    lines.append("      rows.map((row) => [...row].map((ch) => PALETTE[ch] ?? null)),")
-    lines.append("    ),")
-    lines.append("  ]),")
-    lines.append(") as Record<AgentStatus, PixelFrame[]>")
+    lines.append("export const FRAMES: Record<Skin, Record<AgentStatus, PixelFrame[]>> =")
+    lines.append("  Object.fromEntries(")
+    lines.append("    Object.entries(FRAME_ROWS).map(([skin, states]) => [")
+    lines.append("      skin,")
+    lines.append("      Object.fromEntries(")
+    lines.append("        Object.entries(states).map(([state, frames]) => [")
+    lines.append("          state,")
+    lines.append("          frames.map((rows) =>")
+    lines.append("            rows.map((row) => [...row].map((ch) => PALETTES[skin as Skin][ch] ?? null)),")
+    lines.append("          ),")
+    lines.append("        ]),")
+    lines.append("      ),")
+    lines.append("    ]),")
+    lines.append("  ) as Record<Skin, Record<AgentStatus, PixelFrame[]>>")
     lines.append("")
     return "\n".join(lines)
 
