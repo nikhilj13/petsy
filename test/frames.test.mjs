@@ -19,49 +19,45 @@ const STATES = [
   "error",
 ]
 const HEX_RE = /^#[0-9a-f]{6}$/
+const WIDTH = 24
+const HEIGHT = 30
+const NF = 8
 
-function blockFor(state) {
-  const key = framesSrc.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
-  const start = framesSrc.indexOf(key)
+function framesFor(state) {
+  const block = framesSrc.slice(framesSrc.indexOf("FRAME_ROWS"))
+  const start = block.indexOf(`${state}: [`)
   assert.ok(start !== -1, `missing state ${state}`)
-  const nextStarts = STATES.map((s) => {
-    if (s === state) return Infinity
-    const a = framesSrc.indexOf(`${s}: [`, start + 1)
-    const b = framesSrc.indexOf(`"${s}": [`, start + 1)
-    const cands = [a, b].filter((n) => n !== -1)
-    return cands.length ? Math.min(...cands) : Infinity
-  }).filter((n) => n !== -1)
-  return framesSrc.slice(start, Math.min(...nextStarts, framesSrc.length))
-}
-
-const TOKEN_RE = /"(#[0-9a-fA-F]{6})"|null/g
-
-function cellsFor(state) {
-  const tokens = [...blockFor(state).matchAll(TOKEN_RE)].map((m) =>
-    m[1] ? m[1].toLowerCase() : null,
-  )
-  return tokens
+  let end = block.length
+  for (const other of STATES) {
+    if (other === state) continue
+    const j = block.indexOf(`\n  ${other}: [`, start + 1)
+    if (j !== -1 && j < end) end = j
+  }
+  return [...block.slice(start, end).matchAll(/"([.0-9a-zA-Z]+)"/g)].map((m) => m[1])
 }
 
 describe("frames", () => {
-  it("defines all 9 states with 2 frames of 20 rows (16px wide)", () => {
+  it("declares 24x30 sprites with 8 frames per state", () => {
+    assert.match(framesSrc, /export const SPRITE_WIDTH = 24/)
+    assert.match(framesSrc, /export const SPRITE_HEIGHT = 30/)
+    assert.match(framesSrc, /export const FRAMES_PER_STATE = 8/)
+  })
+
+  it("defines all 9 states with 8 frames of 30 rows", () => {
     for (const state of STATES) {
-      const tokens = cellsFor(state)
-      assert.equal(tokens.length, 2 * 20 * 16, `${state}: expected 640 cells, got ${tokens.length}`)
+      const rows = framesFor(state)
+      assert.equal(rows.length, NF * HEIGHT, `${state}: expected ${NF * HEIGHT} rows, got ${rows.length}`)
     }
   })
 
-  it("keeps every row rectangular (16px) with hex colors or transparency", () => {
+  it("keeps every row exactly 24 chars of palette chars", () => {
+    const paletteChars = new Set([...framesSrc.matchAll(/"(.)": /g)].map((m) => m[1]))
+    paletteChars.add(".") // transparent is implicit (absent from PALETTE map)
     for (const state of STATES) {
-      const tokens = cellsFor(state)
-      for (let r = 0; r < tokens.length; r += 16) {
-        const row = tokens.slice(r, r + 16)
-        assert.equal(row.length, 16, `${state}: bad width at row ${r / 16}`)
-        for (const cell of row) {
-          assert.ok(
-            cell === null || HEX_RE.test(cell),
-            `${state}: bad cell ${JSON.stringify(cell)}`,
-          )
+      for (const [i, row] of framesFor(state).entries()) {
+        assert.equal(row.length, WIDTH, `${state} row ${i}: width ${row.length}`)
+        for (const ch of row) {
+          assert.ok(paletteChars.has(ch), `${state} row ${i}: unknown palette char ${JSON.stringify(ch)}`)
         }
       }
     }
@@ -70,6 +66,11 @@ describe("frames", () => {
   it("uses the pastel purple + error red palette", () => {
     assert.ok(framesSrc.includes("#C8B6FF"), "missing pastel purple")
     assert.ok(framesSrc.includes("#E06C75"), "missing error red")
+  })
+
+  it("expands palette rows to truecolor FRAMES", () => {
+    assert.match(framesSrc, /export const FRAMES: Record<AgentStatus, PixelFrame\[\]>/)
+    assert.match(framesSrc, /PALETTE\[ch\] \?\? null/)
   })
 
   it("has no tabs in art", () => {

@@ -179,7 +179,7 @@ export function Avatar(props: AvatarProps) {
       const ms = Math.max(120, Math.floor(1000 / Math.max(1, props.fps)))
       const blinkEveryTicks = Math.max(1, Math.round(props.blinkEveryMs / ms))
       const blinkHoldTicks = Math.max(1, Math.round(props.blinkHoldMs / ms))
-      const blinkFrame = Math.min(1, FRAMES.idle.length - 1)
+      const blinkFrame = FRAMES.idle.length - 1 // last idle frame = shut eyes
       interval = setInterval(() => {
         const current = status()
         if (isAnimatedStatus(current)) {

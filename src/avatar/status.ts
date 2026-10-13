@@ -79,13 +79,7 @@ export function toolNameToStatus(toolName: string | undefined | null): AgentStat
   return "thinking"
 }
 
-/** States that animate every frame vs. static / slow blink. */
+/** States that animate every frame vs. slow blink (idle only). */
 export function isAnimatedStatus(status: AgentStatus): boolean {
-  return (
-    status === "thinking" ||
-    status === "researching" ||
-    status === "reading" ||
-    status === "writing" ||
-    status === "idea"
-  )
+  return status !== "idle"
 }

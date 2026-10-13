@@ -1,6 +1,6 @@
 // Terminal preview for visual iteration — no OpenCode needed.
-// Usage: node scripts/preview.mjs [state]  (default: all states, both frames)
-// Renders the truecolor frames the TUI uses (truecolor ANSI).
+// Usage: node scripts/preview.mjs [state]  (default: all states, all frames)
+// Renders the truecolor frames the TUI uses (truecolor ANSI, half-blocks).
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -16,28 +16,29 @@ function hexToRgb(hex) {
   return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
 }
 
-function blockFor(state) {
-  const key = src.includes(`"${state}": [`) ? `"${state}": [` : `${state}: [`
-  const start = src.indexOf(key)
-  if (start === -1) return ""
-  let end = src.length
-  for (const s of STATES) {
-    if (s === state) continue
-    for (const k of [`${s}: [`, `"${s}": [`]) {
-      const i = src.indexOf(k, start + 1)
-      if (i !== -1 && i < end) end = i
-    }
-  }
-  return src.slice(start, end)
-}
+// Parse palette: "ch": "#rrggbb"
+const PALETTE = {}
+for (const m of src.matchAll(/"(.)": "(#[0-9a-fA-F]{6})"/g)) PALETTE[m[1]] = m[2]
 
-function framesFor(state, width, height) {
-  const tokens = [...blockFor(state).matchAll(/"(#[0-9a-fA-F]{6})"|null/g)].map((m) =>
-    m[1] ? m[1].toLowerCase() : null,
-  )
-  const rows = []
-  for (let i = 0; i + width <= tokens.length; i += width) rows.push(tokens.slice(i, i + width))
-  return [rows.slice(0, height), rows.slice(height, height * 2)]
+const width = parseInt(src.match(/export const SPRITE_WIDTH = (\d+)/)[1], 10)
+const height = parseInt(src.match(/export const SPRITE_HEIGHT = (\d+)/)[1], 10)
+
+/** All frames (as row-string arrays) for a state from FRAME_ROWS. */
+function framesFor(state) {
+  const rowsBlock = src.slice(src.indexOf("FRAME_ROWS"))
+  const start = rowsBlock.indexOf(`${state}: [`)
+  if (start === -1) return []
+  let end = rowsBlock.length
+  for (const other of STATES) {
+    if (other === state) continue
+    const j = rowsBlock.indexOf(`\n  ${other}: [`, start + 1)
+    if (j !== -1 && j < end) end = j
+  }
+  const body = rowsBlock.slice(start, end)
+  const rows = [...body.matchAll(/"([.0-9a-zA-Z]+)"/g)].map((m) => m[1])
+  const frames = []
+  for (let i = 0; i + height <= rows.length; i += height) frames.push(rows.slice(i, i + height))
+  return frames
 }
 
 function fg(rgb) {
@@ -49,8 +50,10 @@ function bg(rgb) {
 }
 
 function cell(top, bottom) {
-  const t = top ? hexToRgb(top) : null
-  const b = bottom ? hexToRgb(bottom) : null
+  const tc = top && top !== "." ? PALETTE[top] : null
+  const bc = bottom && bottom !== "." ? PALETTE[bottom] : null
+  const t = tc ? hexToRgb(tc) : null
+  const b = bc ? hexToRgb(bc) : null
   if (t && b) return `\x1b[${fg(t)};${bg(b)}m▀${RESET}`
   if (t) return `\x1b[${fg(t)}m▀${RESET}`
   if (b) return `\x1b[${fg(b)}m▄${RESET}`
@@ -58,17 +61,14 @@ function cell(top, bottom) {
 }
 
 const only = process.argv[2]
-const widthMatch = src.match(/export const SPRITE_WIDTH = (\d+)/)
-const heightMatch = src.match(/export const SPRITE_HEIGHT = (\d+)/)
-const width = widthMatch ? parseInt(widthMatch[1], 10) : 20
-const height = heightMatch ? parseInt(heightMatch[1], 10) : 24
 for (const state of STATES) {
   if (only && state !== only) continue
-  for (const [i, frame] of framesFor(state, width, height).entries()) {
-    console.log(`--- ${state} frame ${i + 1} ---`)
-    for (let r = 0; r < frame.length; r += 2) {
+  const frames = framesFor(state)
+  for (const [i, frame] of frames.entries()) {
+    console.log(`--- ${state} frame ${i + 1}/${frames.length} ---`)
+    for (let r = 0; r < height; r += 2) {
       let line = ""
-      for (let c = 0; c < width; c++) line += cell(frame[r][c], (frame[r + 1] ?? [])[c])
+      for (let c = 0; c < width; c++) line += cell(frame[r]?.[c] ?? ".", frame[r + 1]?.[c] ?? ".")
       console.log(line)
     }
     console.log()

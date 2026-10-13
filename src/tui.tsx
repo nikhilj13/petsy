@@ -27,7 +27,7 @@ export default Plugin.define({
   setup(context) {
     const options = (context.options ?? {}) as Record<string, unknown>
     const position = asPosition(options.position)
-    const fps = asFps(options.fps, 5)
+    const fps = asFps(options.fps, 8)
     const animations = options.animations !== false
     const doneTimeoutMs = asMs(options.doneTimeoutMs, 3000)
     const enabled = options.enabled !== false
