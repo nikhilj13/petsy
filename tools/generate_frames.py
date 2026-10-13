@@ -134,16 +134,16 @@ def draw_body(c, cx, cy, rx, ry, frame, squash=0.0):
 
 
 def draw_feet(c, cx, cy, frame, dy=0.0):
+    # feet touch the body bottom (no background gap): body bottom ~ cy+8
     for sx in (-3.4, 3.4):
-        fx, fy = cx + sx, cy + 11.6 + dy
-        wob = 0.15 * math.sin((frame + (4 if sx > 0 else 0)) * math.pi / 4)
+        fx, fy = cx + sx, cy + 9.4 + dy
         for yy in range(int(fy - 1.4), int(fy + 1.6)):
             for xx in range(int(fx - 1.8), int(fx + 1.9)):
                 ddx, ddy = (xx - fx) / 1.9, (yy - fy) / 1.45
                 dd = ddx * ddx + ddy * ddy
                 if dd <= 1.0:
                     c.put(xx, yy, "5")
-                elif dd <= 1.75:
+                elif dd <= 1.75 and c.get(xx, yy) == ".":
                     c.put(xx, yy, "o")
 
 
@@ -249,9 +249,13 @@ def draw_star(c, cx, cy, size, ch="y"):
 
 
 def draw_qmark(c, cx, cy, ch="w", scale=1):
-    """Question mark glyph ~5x7."""
-    pts = [(-2, -3), (-1, -3), (0, -3), (2, -2), (2, -1), (1, 0),
-           (0, 1), (0, 2), (0, 4)]
+    """Question mark glyph 5x7, fully connected, dot same color."""
+    pts = [(-1, -3), (0, -3), (1, -3),      # top bar
+           (1, -2), (2, -2),                   # upper right
+           (1, -1),
+           (0, 0), (1, 0),
+           (0, 1),
+           (0, 3)]                            # dot
     for dx, dy in pts:
         c.put(cx + dx * scale, cy + dy * scale, ch)
 
@@ -266,7 +270,7 @@ def draw_sparkle(c, x, y, ch="h"):
 
 # ------------------------------------------------------------ state art ---
 
-BOB = [round(math.sin(i * 2 * math.pi / NF)) for i in range(NF)]  # 0,1,1,1,0,-1,-1,-1
+BOB = [0, 0, 1, 1, 0, 0, -1, -1][0:8]  # 2-frame dwell per level = smooth bob
 
 
 def blink_frame(state_frames, idx):
@@ -279,8 +283,8 @@ def frame_idle(f):
     cx, cy = 12, 16.5 + BOB[f]
     blink = f == NF - 1
     sq = 0.05 if BOB[f] == 1 else (-0.04 if BOB[f] == -1 else 0)
-    # twinkling star above head
-    star_size = [1, 2, 3, 2, 1, 2, 3, 2][f]
+    # twinkling star above head (min size 2 so it always reads as a star)
+    star_size = [2, 2, 3, 3, 2, 2, 3, 2][f]
     draw_star(c, 12, 3.5 + BOB[f] * 0.5, star_size)
     draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq)
     draw_feet(c, cx, cy, f, dy=BOB[f])
@@ -294,47 +298,52 @@ def frame_idle(f):
     return c
 
 
+def draw_cloud(c, cx, cy):
+    """Big puffy thought cloud: union of blobs, flat-ish bottom, 1px outline."""
+    blobs = [(cx - 4.5, cy + 0.6, 2.8), (cx, cy - 0.6, 3.4), (cx + 4.5, cy + 0.5, 2.9)]
+    mask = set()
+    for bx, by, br in blobs:
+        for yy in range(int(by - br) - 1, int(by + br) + 2):
+            for xx in range(int(bx - br) - 1, int(bx + br) + 2):
+                if ((xx - bx) / br) ** 2 + ((yy - by) / br) ** 2 <= 1.0:
+                    mask.add((xx, yy))
+    # merge the bottoms into a solid belly
+    for yy in range(int(cy), int(cy) + 2):
+        for xx in range(int(cx - 6), int(cx + 7)):
+            mask.add((xx, yy))
+    for xx, yy in mask:
+        c.put(xx, yy, "w")
+    # outline: anything touching the cloud from outside
+    for xx, yy in list(mask):
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            nx, ny = xx + dx, yy + dy
+            if (nx, ny) not in mask and c.get(nx, ny) == ".":
+                c.put(nx, ny, "o")
+
+
 def frame_thinking(f):
     c = Canvas()
     cx, cy = 12, 16.5 + BOB[f]
     draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f, dy=BOB[f])
     draw_arms(c, cx, cy, f)
-    # eyes look up, darting
+    # eyes look up at the cloud, darting
     pdx = [-0.4, -0.4, 0.4, 0.4, 0, 0, -0.4, 0.4][f]
     draw_face(c, cx, cy - 1.2, ("open", "open"), pdx=pdx, pdy=-0.9, mouth="o")
-    # thought bubble trail + cloud
-    trail = [(15.6, 8.6, 0.5), (16.8, 6.8, 0.8)]
-    appear = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3}[f]
+    # thought trail rising from the head into the cloud
+    trail = [(15.2, 8.6, 0.6), (16.4, 7.4, 0.9)]
     for i, (bx, by, br) in enumerate(trail):
-        if i < appear:
+        if f % 4 >= i:
             for yy in range(int(by - br) - 1, int(by + br) + 2):
                 for xx in range(int(bx - br) - 1, int(bx + br) + 2):
-                    ddx = (xx - bx) / (br + 0.5)
-                    ddy = (yy - by) / (br + 0.5)
-                    if ddx * ddx + ddy * ddy <= 1.0:
+                    if ((xx - bx) / (br + 0.4)) ** 2 + ((yy - by) / (br + 0.4)) ** 2 <= 1.0:
                         c.put(xx, yy, "w")
-    if appear >= 3:
-        # cloud
-        for ccx, ccy, crr in ((19.5, 3.6, 2.4), (17.4, 4.8, 1.8), (21.4, 5.2, 1.6)):
-            for yy in range(int(ccy - crr) - 1, int(ccy + crr) + 2):
-                for xx in range(int(ccx - crr) - 1, int(ccx + crr) + 2):
-                    ddx = (xx - ccx) / crr
-                    ddy = (yy - ccy) / crr
-                    if ddx * ddx + ddy * ddy <= 1.0:
-                        c.put(xx, yy, "w")
-        # cloud outline bumps
-        for ccx, ccy, crr in ((19.5, 3.6, 2.9), (17.4, 4.8, 2.3), (21.4, 5.2, 2.1)):
-            for yy in range(int(ccy - crr) - 2, int(ccy + crr) + 3):
-                for xx in range(int(ccx - crr) - 2, int(ccx + crr) + 3):
-                    ddx = (xx - ccx) / crr
-                    ddy = (yy - ccy) / crr
-                    dd = ddx * ddx + ddy * ddy
-                    if 1.0 < dd <= 1.55 and c.get(xx, yy) == ".":
-                        c.put(xx, yy, "o")
-        # pulsing ?
-        wob = [0, 0, 0, -1, -1, 0, 1, 0][f]
-        draw_qmark(c, 19.5 + wob * 0.0, 3.8, ch="k")
+    # big cloud above the head, breathing gently
+    lift = [0, 0, 0, 1, 1, 1, 0, 0][f]
+    draw_cloud(c, 12, 3.5 - lift)
+    # pulsing ? centered in the cloud
+    wob = [0, 0, 1, 1, 0, -1, -1, 0][f]
+    draw_qmark(c, 12 + wob, 3.2 - lift, ch="k")
     return c
 
 
@@ -386,38 +395,34 @@ def frame_writing(f):
     cx, cy = 12, 16.5 + BOB[f]
     draw_body(c, cx, cy, 8.4, 7.6, f)
     draw_feet(c, cx, cy, f, dy=BOB[f])
-    # paper held in front
+    # paper held in front — fixed size, always shows at least one line
     px0, px1, py0 = 5, 18, 22
     for yy in range(py0, py0 + 5):
         for xx in range(px0, px1 + 1):
             edge = yy == py0 or xx == px0 or xx == px1 or yy == py0 + 4
             c.put(xx, yy, "o" if edge else "n")
-    # lines grow across frames
-    done_lines = {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3, 7: 1}[f]
-    line_len = [0, 6, 6, 10, 10, 13, 13, 3][f]
+    # lines grow f0->f6 then reset f7 (new page)
+    done_lines = [1, 1, 2, 2, 3, 3, 4, 0][f]
+    active_len = [5, 9, 7, 11, 9, 13, 11, 0][f]
     for li in range(done_lines):
         yy = py0 + 1 + li
-        for xx in range(px0 + 2, px0 + 2 + line_len - li * 2):
+        ln = 13 if li < done_lines - 1 else active_len
+        for xx in range(px0 + 2, min(px0 + 2 + ln, px1)):
             c.put(xx, yy, "N")
-    # pencil: tip follows line end, wobble
-    tipx = px0 + 2 + line_len + (1 if f % 2 else 0)
-    tipy = py0 + max(0, done_lines - 1)
-    for d in range(0, 7):
-        xx, yy = tipx + d, tipy - d
-        if d == 0:
-            c.put(xx, yy, "k")
-        elif d < 3:
-            c.put(xx, yy, "Y")
-        else:
-            c.put(xx, yy, "y")
-        c.put(xx, yy + 1, "y" if d >= 2 else "k")
-    c.put(tipx + 6, tipy - 5, "s")
-    c.put(tipx + 7, tipy - 5, "s")
-    c.put(tipx + 6, tipy - 4, "s")
-    c.put(tipx + 7, tipy - 4, "s")
-    # ink dot
-    if f % 3 == 0:
-        c.put(tipx - 1, tipy + 1, "k")
+    # pencil: FIXED 5px shaft + tip, glides along the active line, stays on-canvas
+    active_y = py0 + max(0, done_lines - 1) if done_lines else py0 + 1
+    tipx = min(px0 + 1 + active_len, px1 - 5)
+    tipy = active_y
+    c.put(tipx, tipy, "k")                     # graphite tip
+    for d in range(1, 4):                       # wood shaft
+        c.put(tipx + d, tipy - d, "y")
+        c.put(tipx + d + 1, tipy - d, "y")
+    c.put(tipx + 4, tipy - 3, "Y")            # ferrule
+    c.put(tipx + 5, tipy - 4, "s")            # eraser
+    c.put(tipx + 4, tipy - 4, "s")
+    # ink dot on the fresh line
+    if f % 2 == 0:
+        c.put(tipx - 1, tipy, "k")
     # eyes look down at page
     draw_face(c, cx, cy - 1.4, ("half", "half"), pdy=0.8, mouth="smile")
     return c
@@ -428,38 +433,37 @@ def frame_researching(f):
     cx, cy = 12, 16.5 + BOB[f]
     draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f, dy=BOB[f])
-    # magnifier sweeps across the face
-    gx = [8.5, 10, 12, 14, 15.5, 14, 12, 10][f]
+    # face first, so the magnifier overlaps it with the eye visible through glass
+    pdx = 0.4 if f < 4 else -0.4
+    draw_face(c, cx, cy - 1.2, ("open", "open"), pdx=pdx, pdy=0.2, mouth="smile")
+    # magnifier sweeps across the face: big lens, thick rim, eye visible inside
+    gx = [8.4, 10, 12, 14, 15.6, 14, 12, 10][f]
     gy = cy - 1.2
-    r = 3.1
+    r = 3.9
+    # handle first (under the rim): always lower-left so the grip never flips
+    hx0 = gx - 2.6
+    hs = -1
+    for d in range(1, 4):
+        c.put(hx0 + d * hs, gy + 2.6 + d, "k")
+        c.put(hx0 + d * hs + hs, gy + 2.6 + d, "k")
     for yy in range(int(gy - r) - 2, int(gy + r) + 3):
         for xx in range(int(gx - r) - 2, int(gx + r) + 3):
             ddx, ddy = (xx - gx) / r, (yy - gy) / r
             dd = ddx * ddx + ddy * ddy
+            prev = c.get(xx, yy)
             if dd <= 1.0:
-                prev = c.get(xx, yy)
-                if prev in ("e", "w", "g"):
-                    c.put(xx, yy, "e")  # magnified pupil
-                elif prev == ".":
-                    c.put(xx, yy, "c")
+                if prev == "e":
+                    c.put(xx, yy, "e")       # eye stays visible through glass
+                elif prev == "w":
+                    c.put(xx, yy, "w")       # face gloss shines through
                 else:
-                    c.put(xx, yy, "c")
-            elif dd <= 1.5:
-                c.put(xx, yy, "o")
-    # shine on glass
-    c.put(gx - 1.4, gy - 1.6, "w")
-    c.put(gx - 0.4, gy - 2.2, "w")
-    # handle
-    for d in range(1, 4):
-        c.put(gx + 2 + d * 0.8, gy + 2 + d * 0.8, "k")
-        c.put(gx + 2 + d * 0.8 + 1, gy + 2 + d * 0.8, "k")
-    # other eye watches
-    ex = cx + 3.6 if gx < cx else cx - 3.6
-    draw_eye(c, ex, cy - 1.2, "open", pdx=0.4 if gx < cx else -0.4, pdy=0.2)
-    draw_face_blush = None
-    c.put(cx - 6.2, cy + 1.4, "s")
-    c.put(cx + 6.2, cy + 1.4, "s")
-    # orbiting sparkles
+                    c.put(xx, yy, "c")       # tinted glass over fur/background
+            elif dd <= 1.75:
+                c.put(xx, yy, "o")           # thick visible rim
+    # glass shine streak
+    c.put(gx - 1.4, gy - 1.8, "w")
+    c.put(gx - 0.4, gy - 2.4, "w")
+    # orbiting sparkle
     ang = f * 2 * math.pi / NF
     ox, oy = cx + math.cos(ang) * 10.5, cy - 4 + math.sin(ang) * 3.2
     draw_sparkle(c, ox, oy, "h")
@@ -470,8 +474,8 @@ def frame_reading(f):
     c = Canvas()
     cx, cy = 12, 16.5 + BOB[f]
     draw_body(c, cx, cy, 8.4, 8.0, f)
-    # open book in front (covers lower face)
-    lift = [0, 0, 1, 1, 0, 0, -1, 0][f]  # page flutter
+    # open book in front (covers lower face) — page flutters every frame
+    lift = [0, 1, 2, 2, 1, 0, -1, 0][f]
     # left page
     for yy in range(21, 27):
         slant = 0 if yy < 23 else 0
@@ -518,16 +522,18 @@ def frame_complete(f):
     bounce = [0, 1, 2, 1, 0, -1, -2, -1][f]
     cx, cy = 12, 16.5 + bounce * 0.6
     sq = 0.06 if bounce == 2 else (-0.05 if bounce == -2 else 0)
-    # confetti rain
+    # confetti: clustered 2px bits on steady falling paths, present every frame
     rng = random.Random(99)
-    parts = [(rng.randrange(0, W), rng.randrange(0, 14),
+    parts = [(rng.randrange(1, W - 1), rng.randrange(0, 16),
               rng.choice(["y", "s", "a", "c", "3", "h"]),
-              rng.choice([1, 2])) for _ in range(14)]
+              rng.choice([1, 2])) for _ in range(12)]
     for px, py0, pch, spd in parts:
-        py = (py0 + f * spd * 2) % 30
+        py = (py0 + f * spd * 2) % 20          # fall zone above/around body
         sway = round(math.sin((f + py0) * math.pi / 4))
-        if py < 29:
-            c.put(px + sway, py, pch)
+        c.put(px + sway, py, pch)
+        c.put(px + sway, py + 1, pch)          # 2px cluster, reads as confetti
+        if spd == 2:
+            c.put(px + sway + 1, py, pch)
     draw_body(c, cx, cy, 8.4, 8.0, f, squash=sq)
     draw_feet(c, cx, cy, f, dy=bounce * 0.6)
     draw_arms(c, cx, cy, f, raise_amt=1.2)
@@ -579,26 +585,25 @@ def frame_confused(f):
 
 def frame_error(f):
     c = Canvas()
-    jitter = [0, -1, 1, 0, 1, -1, 0, 1][f]
+    jitter = [0, -1, 1, 0, 1, -1, 0, 1][f]  # tight ±1px shake, no vertical teleport
     cx, cy = 12 + jitter, 16.5
     draw_body(c, cx, cy, 8.4, 8.0, f)
     draw_feet(c, cx, cy, f)
     draw_arms(c, cx, cy, f)
     draw_face(c, cx, cy - 1.2, ("x", "x"), mouth="sad", blush=False)
-    # glitch static flickering around the silhouette
-    rng = random.Random(500 + f * 7)
-    for _ in range(10):
-        gx = rng.randrange(2, 22)
-        gy = rng.randrange(6, 26)
-        dx, dy = gx - cx, gy - cy
-        d = math.sqrt((dx / 8.4) ** 2 + (dy / 8.0) ** 2)
-        if 1.15 < d < 1.9:
-            c.put(gx, gy, rng.choice(["r", "R", "o", "h"]))
-    # red sparks falling
-    for i, (sx0, ph) in enumerate(((5, 0), (18, 3), (10, 5))):
-        sy = (ph + f * 2) % 12
-        if sy < 11:
-            c.put(sx0 + jitter, sy, "r")
+    # glitch static: fixed slots that shimmer (never fully vanish)
+    slots = [(3, 8), (20, 7), (2, 18), (21, 16), (5, 24), (18, 25), (1, 12), (22, 11)]
+    for i, (sx, sy) in enumerate(slots):
+        if (f + i) % 3 == 0:
+            continue  # some slots blink off, at least 5 stay lit
+        ch = ["r", "R", "h"][(f + i) % 3]
+        c.put(sx + jitter, sy, ch)
+        c.put(sx + jitter + 1, sy, ch)
+    # red sparks falling on fixed columns, always visible
+    for sx0, ph in ((5, 0), (12, 4), (18, 2)):
+        sy = 2 + ((ph + f * 2) % 4) * 2       # cycles rows 2..8, above body
+        c.put(sx0 + jitter, sy, "r")
+        c.put(sx0 + jitter, sy + 1, "r")
     return c
 
 
